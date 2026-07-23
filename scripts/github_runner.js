@@ -31,6 +31,41 @@ const runnerStartTime = Date.now();
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
 /**
+ * Check if a record_ghost_runner dispatch event was sent to GitHub API
+ */
+async function checkRecordSignal() {
+    try {
+        const token = process.env.PAT_TOKEN;
+        const owner = process.env.GITHUB_OWNER;
+        const repo = process.env.GITHUB_REPO;
+        if (!token || !owner || !repo) return false;
+
+        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/events`, {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            timeout: 3000
+        });
+
+        if (Array.isArray(res.data)) {
+            for (const ev of res.data) {
+                if (ev.type === 'RepositoryDispatchEvent' && ev.payload && ev.payload.action === 'record_ghost_runner') {
+                    const eventTime = new Date(ev.created_at).getTime();
+                    if (eventTime >= runnerStartTime - 5000) {
+                        console.log("🔴 Record signal detected from GitHub Dispatch!");
+                        return true;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Silent catch
+    }
+    return false;
+}
+
+/**
  * Check if a stop_ghost_runner dispatch event was sent to GitHub API
  */
 async function checkStopSignal() {
@@ -92,7 +127,8 @@ async function startHeartbeat(vncUrl) {
         const updatedUI = ui.generatePlayerUI({
             status: 'RECORDING',
             timer: timeStr,
-            meetingUrl: vncUrl || meetingUrl
+            meetingUrl: meetingUrl,
+            vncUrl: vncUrl
         });
 
         try {
@@ -122,13 +158,13 @@ async function finalizeAndUpload(vncUrl) {
         const msgId = Number(playerMessageId);
 
         // Phase 1: Stop FFMPEG
-        const finalizingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 15, meetingUrl: vncUrl || meetingUrl });
+        const finalizingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 15, meetingUrl: meetingUrl, vncUrl: vncUrl });
         await bot.telegram.editMessageText(chatId, msgId, undefined, finalizingUI.text, { parse_mode: 'Markdown', ...finalizingUI.markup }).catch(() => {});
 
         const stopPromise = recorder.stopRecording();
 
         // Phase 2: Processing & STT
-        const processingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 40, meetingUrl: vncUrl || meetingUrl });
+        const processingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 40, meetingUrl: meetingUrl, vncUrl: vncUrl });
         await bot.telegram.editMessageText(chatId, msgId, undefined, processingUI.text, { parse_mode: 'Markdown', ...processingUI.markup }).catch(() => {});
 
         const assets = await stopPromise;
@@ -140,7 +176,8 @@ async function finalizeAndUpload(vncUrl) {
             const uploadingUI = ui.generatePlayerUI({ 
                 status: 'FINALIZING', 
                 progress: uploadProgress, 
-                meetingUrl: vncUrl || meetingUrl 
+                meetingUrl: meetingUrl, 
+                vncUrl: vncUrl 
             });
             await bot.telegram.editMessageText(chatId, msgId, undefined, uploadingUI.text, { parse_mode: 'Markdown', ...uploadingUI.markup }).catch(() => {});
 
@@ -151,7 +188,7 @@ async function finalizeAndUpload(vncUrl) {
 
         // Phase 4: Uploading AI Transcript
         if (assets.transcriptPath) {
-            const transcriptUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 95, meetingUrl: vncUrl || meetingUrl });
+            const transcriptUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 95, meetingUrl: meetingUrl, vncUrl: vncUrl });
             await bot.telegram.editMessageText(chatId, msgId, undefined, transcriptUI.text, { parse_mode: 'Markdown', ...transcriptUI.markup }).catch(() => {});
 
             await bot.telegram.sendDocument(chatId, { source: assets.transcriptPath }, { 
@@ -161,7 +198,7 @@ async function finalizeAndUpload(vncUrl) {
         }
 
         // Phase 5: Complete State
-        const completedUI = ui.generatePlayerUI({ status: 'COMPLETED', progress: 100, partCount: totalChunks, meetingUrl: vncUrl || meetingUrl });
+        const completedUI = ui.generatePlayerUI({ status: 'COMPLETED', progress: 100, partCount: totalChunks, meetingUrl: meetingUrl, vncUrl: vncUrl });
         await bot.telegram.editMessageText(chatId, msgId, undefined, completedUI.text, { parse_mode: 'Markdown', ...completedUI.markup }).catch(() => {});
 
         setTimeout(() => {
@@ -182,19 +219,29 @@ async function run() {
         // 1. Launch Stealth Browser & Serveo VNC Tunnel
         const tunnel = await browserManager.launchMeeting(meetingUrl);
 
-        // 2. Start HD Stream Capture automatically
-        await recorder.startRecording();
-        isRecording = true;
-        startHeartbeat(tunnel.url);
+        // 2. Update Telegram Message to READY Standby State with START RECORDING button & RDP Link
+        const readyUI = ui.generatePlayerUI({ status: 'READY', meetingUrl: meetingUrl, vncUrl: tunnel.url });
+        await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, readyUI.text, {
+            parse_mode: 'Markdown', ...readyUI.markup
+        }).catch((err) => console.error("Initial Ready UI edit error:", err.message));
 
-        // 3. Update Telegram Message with Live RDP Viewer Link & RECORDING state
-        const recordingUI = ui.generatePlayerUI({ status: 'RECORDING', timer: '0:00', meetingUrl: meetingUrl, vncUrl: tunnel.url });
-        await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, recordingUI.text, {
-            parse_mode: 'Markdown', ...recordingUI.markup
-        }).catch((err) => console.error("Initial Recording UI edit error:", err.message));
-
-        // 4. Express HTTP control server for Render bot commands
+        // 3. Express HTTP control server for Render bot commands
         const app = express();
+
+        async function triggerStartRecording() {
+            if (!isRecording) {
+                console.log("🔴 Starting HD Stream Recording...");
+                await recorder.startRecording();
+                isRecording = true;
+                startHeartbeat(tunnel.url);
+            }
+        }
+
+        app.get('/record', async (req, res) => {
+            res.json({ status: 'recording' });
+            triggerStartRecording();
+        });
+
         app.get('/stop', async (req, res) => {
             res.json({ status: 'finalizing' });
             finalizeAndUpload(tunnel.url);
@@ -207,6 +254,19 @@ async function run() {
         app.listen(8088, () => {
             console.log("Runner Control API active on port 8088");
         });
+
+        // 4. Poll for record start signal from GitHub Dispatch
+        const checkRecordInterval = setInterval(async () => {
+            if (isRecording) {
+                clearInterval(checkRecordInterval);
+                return;
+            }
+            const recordSignal = await checkRecordSignal();
+            if (recordSignal && !isRecording) {
+                clearInterval(checkRecordInterval);
+                await triggerStartRecording();
+            }
+        }, 3000);
 
     } catch (error) {
         console.error("Runner Execution Error:", error);

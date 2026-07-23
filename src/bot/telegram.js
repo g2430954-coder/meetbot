@@ -205,46 +205,14 @@ async function handleRecord(ctx) {
     }
 
     sessionState.isRecording = true;
-    sessionState.recordingStartTime = Date.now();
 
     try {
-        await recorder.startRecording();
-        
-        // START REAL-TIME TIMER UPDATES
-        let elapsedSeconds = 0;
-        sessionState.timerInterval = setInterval(async () => {
-            elapsedSeconds += 3;
-            const minutes = Math.floor(elapsedSeconds / 60);
-            const seconds = elapsedSeconds % 60;
-            const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
-
-            const updatedUI = ui.generatePlayerUI({
-                status: 'RECORDING',
-                timer: timeStr,
-                meetingUrl: sessionState.currentUrl
-            });
-
-            try {
-                if (sessionState.playerMessageId) {
-                    await ctx.telegram.editMessageText(
-                        ctx.chat.id,
-                        sessionState.playerMessageId,
-                        undefined,
-                        updatedUI.text,
-                        { parse_mode: 'Markdown', ...updatedUI.markup }
-                    );
-                }
-            } catch (err) {
-                if (err.description && err.description.includes("message is not modified")) return;
-                logger.warn("Timer update notice:", err.message);
-            }
-        }, 3000);
-
+        await github.triggerRecordRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
+        await ctx.replyWithMarkdown("🔴 *Recording Signal Sent! HD Stream Capture & Real-Time Timer Starting...*");
     } catch (error) {
-        logger.error("Recording Start Failure:", error);
+        logger.error("GitHub Record Trigger Failure:", error);
         sessionState.isRecording = false;
-        if (sessionState.timerInterval) clearInterval(sessionState.timerInterval);
-        await ctx.replyWithMarkdown(`🚨 *Recording Error:* ${error.message}`);
+        await ctx.replyWithMarkdown(`🚨 *Record Dispatch Error:* ${error.message}`);
     }
 }
 
