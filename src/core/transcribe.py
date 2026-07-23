@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_TRANSLIT = False
 
-CHUNK_DURATION = 60  # Increase to 60 seconds for better context
+CHUNK_DURATION = 30  # 30s chunks for maximum speech capture & fine timestamps
 
 def get_audio_duration(audio_file):
     with contextlib.closing(wave.open(audio_file, 'r')) as f:
@@ -36,9 +36,9 @@ def convert_to_hinglish(text):
 
 def run_transcription(audio_file, output_file):
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 400
+    recognizer.energy_threshold = 250  # High audio sensitivity to catch quiet speakers
     recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.8
+    recognizer.pause_threshold = 0.5  # Sensitive pause boundary to prevent speech truncating
 
     if not os.path.exists(audio_file):
         print(f"ERROR: Audio file {audio_file} not found.")
@@ -75,21 +75,26 @@ def run_transcription(audio_file, output_file):
                     if not audio_chunk or not audio_chunk.frame_data:
                         break
                         
-                    # Prioritize English (en-IN / en-US), fallback to Hindi (hi-IN) transliterated to Roman alphabet
+                    # 3-Tier Speech Cascade: en-IN -> en-US -> hi-IN (transliterated)
                     chunk_text = None
                     for attempt in range(2):
                         try:
-                            # Primary: Direct English Recognition
+                            # 1. Primary: English (India)
                             chunk_text = recognizer.recognize_google(audio_chunk, language='en-IN')
                             break
                         except sr.UnknownValueError:
                             try:
-                                # Secondary: Hindi Recognition with Automatic Romanized Transliteration
-                                raw_hi_text = recognizer.recognize_google(audio_chunk, language='hi-IN')
-                                chunk_text = convert_to_hinglish(raw_hi_text)
+                                # 2. Secondary: English (US)
+                                chunk_text = recognizer.recognize_google(audio_chunk, language='en-US')
                                 break
                             except sr.UnknownValueError:
-                                break
+                                try:
+                                    # 3. Tertiary: Hindi with Roman Transliteration
+                                    raw_hi_text = recognizer.recognize_google(audio_chunk, language='hi-IN')
+                                    chunk_text = convert_to_hinglish(raw_hi_text)
+                                    break
+                                except sr.UnknownValueError:
+                                    break
                         except sr.RequestError as e:
                             print(f"GHOST meet STT: API retry {attempt+1} at {offset}s due to: {e}")
                             import time

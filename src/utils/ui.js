@@ -23,34 +23,45 @@ function generatePlayerUI(params) {
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
     uiText += `📍 Status: *${status}*\n`;
 
+    const isVncLink = meetingUrl && (meetingUrl.includes('vnc.html') || meetingUrl.includes('serveo'));
+
     if (meetingUrl) {
-        uiText += `🔗 Link: [MEETING ROOM](${meetingUrl})\n`;
+        if (isVncLink) {
+            uiText += `🖥 Live RDP View: [OPEN RDP DASHBOARD](${meetingUrl})\n`;
+        } else {
+            uiText += `🔗 Room Link: [MEETING ROOM](${meetingUrl})\n`;
+        }
     }
 
     if (timer) {
-        uiText += `⏱ Time: *${timer}*\n`;
+        uiText += `⏱ Recording Time: *${timer}*\n`;
     }
 
     if (progress !== undefined) {
-        uiText += `📊 Progress: ${getProgressBar(progress)}\n`;
+        uiText += `📊 Processing: ${getProgressBar(progress)}\n`;
     }
 
     if (partCount) {
-        uiText += `🎥 Captured: *${partCount} parts*\n`;
+        uiText += `🎥 Captured Segments: *${partCount} parts*\n`;
     }
 
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     if (status === 'READY') {
-        uiText += `✨ System Standby. Send /record to start.`;
+        uiText += `✨ System Standby. Tap button below or send /record to start.`;
     } else if (status === 'RECORDING') {
-        uiText += `⏺ Capturing HD Native Feed...`;
+        uiText += `⏺ Capturing 1080p HD Feed + Audio...`;
     } else if (status === 'FINALIZING') {
-        uiText += `⚙️ Processing assets...`;
+        uiText += `⚙️ Splitting segments & generating English transcript...`;
     }
 
     // Inline Buttons based on state
     const buttons = [];
+    
+    if (isVncLink) {
+        buttons.push([Markup.button.url('🖥 OPEN LIVE RDP VIEW', meetingUrl)]);
+    }
+
     if (status === 'READY') {
         buttons.push([Markup.button.callback('⏺ START RECORDING', 'cmd_record')]);
     } else if (status === 'RECORDING') {
@@ -58,7 +69,7 @@ function generatePlayerUI(params) {
     }
 
     if (status !== 'RECORDING' && status !== 'FINALIZING') {
-        buttons.push([Markup.button.callback('📟 DIAGNOSTICS', 'engine_status')]);
+        buttons.push([Markup.button.callback('📟 ENGINE DIAGNOSTICS', 'engine_status')]);
     }
 
     return {
