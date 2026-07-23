@@ -4,6 +4,14 @@ const recorder = require('../src/core/recorder');
 const logger = require('../src/utils/logger');
 const ui = require('../src/utils/ui');
 
+if (!process.env.TELEGRAM_BOT_TOKEN) {
+    console.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is missing in GitHub Secrets!");
+    console.error("👉 Fix: Go to GitHub Repo -> Settings -> Secrets and variables -> Actions -> New repository secret");
+    console.error("   Name: TELEGRAM_BOT_TOKEN");
+    console.error("   Value: <Your Telegram Bot Token>");
+    process.exit(1);
+}
+
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const meetingUrl = process.env.MEETING_URL;
 const groupId = process.env.ALLOWED_GROUP_ID;
