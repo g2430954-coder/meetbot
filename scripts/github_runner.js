@@ -96,7 +96,7 @@ async function startHeartbeat(vncUrl) {
         });
 
         try {
-            await bot.telegram.editMessageText(chatId, playerMessageId, null, updatedUI.text, {
+            await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, updatedUI.text, {
                 parse_mode: 'Markdown', ...updatedUI.markup
             });
         } catch (e) {
@@ -119,15 +119,17 @@ async function finalizeAndUpload(vncUrl) {
     isRecording = false;
 
     try {
+        const msgId = Number(playerMessageId);
+
         // Phase 1: Stop FFMPEG
         const finalizingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 15, meetingUrl: vncUrl || meetingUrl });
-        await bot.telegram.editMessageText(chatId, playerMessageId, null, finalizingUI.text, { parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, finalizingUI.text, { parse_mode: 'Markdown', ...finalizingUI.markup }).catch(() => {});
 
         const stopPromise = recorder.stopRecording();
 
         // Phase 2: Processing & STT
         const processingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 40, meetingUrl: vncUrl || meetingUrl });
-        await bot.telegram.editMessageText(chatId, playerMessageId, null, processingUI.text, { parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, processingUI.text, { parse_mode: 'Markdown', ...processingUI.markup }).catch(() => {});
 
         const assets = await stopPromise;
         const totalChunks = assets.videoChunks.length;
@@ -140,7 +142,7 @@ async function finalizeAndUpload(vncUrl) {
                 progress: uploadProgress, 
                 meetingUrl: vncUrl || meetingUrl 
             });
-            await bot.telegram.editMessageText(chatId, playerMessageId, null, uploadingUI.text, { parse_mode: 'Markdown' });
+            await bot.telegram.editMessageText(chatId, msgId, undefined, uploadingUI.text, { parse_mode: 'Markdown', ...uploadingUI.markup }).catch(() => {});
 
             await bot.telegram.sendVideo(chatId, { source: assets.videoChunks[i] }, { 
                 caption: `🎥 GHOST meet Recording | Part ${i+1} of ${totalChunks}` 
@@ -150,7 +152,7 @@ async function finalizeAndUpload(vncUrl) {
         // Phase 4: Uploading AI Transcript
         if (assets.transcriptPath) {
             const transcriptUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 95, meetingUrl: vncUrl || meetingUrl });
-            await bot.telegram.editMessageText(chatId, playerMessageId, null, transcriptUI.text, { parse_mode: 'Markdown' });
+            await bot.telegram.editMessageText(chatId, msgId, undefined, transcriptUI.text, { parse_mode: 'Markdown', ...transcriptUI.markup }).catch(() => {});
 
             await bot.telegram.sendDocument(chatId, { source: assets.transcriptPath }, { 
                 caption: "📜 *AI Meeting Transcript (100% English Output)*", 
@@ -160,7 +162,7 @@ async function finalizeAndUpload(vncUrl) {
 
         // Phase 5: Complete State
         const completedUI = ui.generatePlayerUI({ status: 'COMPLETED', progress: 100, partCount: totalChunks, meetingUrl: vncUrl || meetingUrl });
-        await bot.telegram.editMessageText(chatId, playerMessageId, null, completedUI.text, { parse_mode: 'Markdown' });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, completedUI.text, { parse_mode: 'Markdown', ...completedUI.markup }).catch(() => {});
 
         setTimeout(() => {
             console.log("GHOST Runner completed successfully. Exiting.");
@@ -187,9 +189,9 @@ async function run() {
 
         // 3. Update Telegram Message with Live RDP Viewer Link & RECORDING state
         const recordingUI = ui.generatePlayerUI({ status: 'RECORDING', timer: '0:00', meetingUrl: meetingUrl, vncUrl: tunnel.url });
-        await bot.telegram.editMessageText(chatId, playerMessageId, null, recordingUI.text, {
+        await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, recordingUI.text, {
             parse_mode: 'Markdown', ...recordingUI.markup
-        });
+        }).catch((err) => console.error("Initial Recording UI edit error:", err.message));
 
         // 4. Express HTTP control server for Render bot commands
         const app = express();

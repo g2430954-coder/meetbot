@@ -163,16 +163,16 @@ bot.command('join', async (ctx) => {
 
         // Update UI to DEPLOYING
         const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
-        await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, dispatchedUI.text, {
+        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, dispatchedUI.text, {
             parse_mode: 'Markdown',
             ...dispatchedUI.markup
-        });
+        }).catch(() => {});
     } catch (error) {
         logger.error("GitHub Trigger Failure:", error);
         sessionState.isJoined = false;
         sessionState.isRecording = false;
         const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
-        await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, errorUI.text + `\n\n🚨 *Dispatch Failure:* ${error.message}`, { parse_mode: 'Markdown' });
+        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, errorUI.text + `\n\n🚨 *Dispatch Failure:* ${error.message}`, { parse_mode: 'Markdown' }).catch(() => {});
     }
     return;
 
@@ -277,7 +277,7 @@ async function handleStop(ctx) {
 
     if (sessionState.playerMessageId) {
         try {
-            await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, stoppingUI.text, {
+            await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, stoppingUI.text, {
                 parse_mode: 'Markdown', ...stoppingUI.markup
             });
         } catch (e) {}
