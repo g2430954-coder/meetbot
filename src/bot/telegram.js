@@ -156,27 +156,25 @@ bot.command('join', async (ctx) => {
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     sessionState.playerMessageId = msg.message_id;
 
-    // Trigger GitHub Runner if running on Render or PAT_TOKEN set
-    if (process.env.RENDER || process.env.PAT_TOKEN) {
-        try {
-            await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
-            sessionState.isRecording = true; // Mark active so /stop works anytime
+    // Always trigger GitHub Actions Runner for heavy Chrome & FFmpeg execution
+    try {
+        await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
+        sessionState.isRecording = true; // Mark active so /stop works anytime
 
-            // Update UI to DEPLOYING
-            const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
-            await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, dispatchedUI.text, {
-                parse_mode: 'Markdown',
-                ...dispatchedUI.markup
-            });
-        } catch (error) {
-            logger.error("GitHub Trigger Failure:", error);
-            sessionState.isJoined = false;
-            sessionState.isRecording = false;
-            const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
-            await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, errorUI.text + `\n\n🚨 *Dispatch Failure:* ${error.message}`, { parse_mode: 'Markdown' });
-        }
-        return;
+        // Update UI to DEPLOYING
+        const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
+        await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, dispatchedUI.text, {
+            parse_mode: 'Markdown',
+            ...dispatchedUI.markup
+        });
+    } catch (error) {
+        logger.error("GitHub Trigger Failure:", error);
+        sessionState.isJoined = false;
+        sessionState.isRecording = false;
+        const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
+        await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, errorUI.text + `\n\n🚨 *Dispatch Failure:* ${error.message}`, { parse_mode: 'Markdown' });
     }
+    return;
 
     // Local / Non-Render logic
     try {
@@ -285,29 +283,27 @@ async function handleStop(ctx) {
         } catch (e) {}
     }
 
-    // Cloud GitHub Runner mode
-    if (process.env.RENDER || process.env.PAT_TOKEN) {
-        try {
-            await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
-            await ctx.replyWithMarkdown(
-                "⏳ *Stop Signal Dispatched*\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "⚙️ Cloud runner is finalizing capture, splitting video chunks, and processing Hinglish AI transcription.\n" +
-                "📁 Video parts and transcript document will be uploaded here shortly."
-            );
-        } catch (error) {
-            logger.error("GitHub Stop Trigger Failure:", error);
-            await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Error:* ${error.message}`);
-        } finally {
-            // RESET SESSION STATE
-            sessionState.isJoined = false;
-            sessionState.isRecording = false;
-            sessionState.currentUrl = null;
-            sessionState.playerMessageId = null;
-            sessionState.recordingStartTime = null;
-        }
-        return;
+    // Always send stop signal to GitHub Actions Runner
+    try {
+        await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
+        await ctx.replyWithMarkdown(
+            "⏳ *Stop Signal Dispatched*\n" +
+            "━━━━━━━━━━━━━━━━━━━━━━\n" +
+            "⚙️ Cloud runner is finalizing capture, splitting video chunks, and processing English AI transcription.\n" +
+            "📁 Video parts and transcript document will be uploaded here shortly."
+        );
+    } catch (error) {
+        logger.error("GitHub Stop Trigger Failure:", error);
+        await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Error:* ${error.message}`);
+    } finally {
+        // RESET SESSION STATE
+        sessionState.isJoined = false;
+        sessionState.isRecording = false;
+        sessionState.currentUrl = null;
+        sessionState.playerMessageId = null;
+        sessionState.recordingStartTime = null;
     }
+    return;
 
     // Local execution mode
     try {
