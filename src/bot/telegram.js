@@ -339,11 +339,11 @@ app.listen(PORT, '0.0.0.0', () => {
 function launchBot() {
     bot.launch()
         .then(() => {
-            console.log("? GHOST meet Bot is initialized and guarding the group.");
+            console.log("🚀 GHOST meet Bot is initialized and guarding the group.");
         })
         .catch((err) => {
-            console.error("? Telegram Launch Error:", err.message);
-            console.log("? Retrying bot connection in 10 seconds...");
+            console.error("🚨 Telegram Launch Error:", err.message);
+            console.log("⏳ Retrying bot connection in 10 seconds...");
             setTimeout(launchBot, 10000); // Retry without crashing the Express server
         });
 }
