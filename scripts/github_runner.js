@@ -175,7 +175,7 @@ async function run() {
         startHeartbeat(tunnel.url);
 
         // 3. Update Telegram Message with Live RDP Viewer Link & RECORDING state
-        const recordingUI = ui.generatePlayerUI({ status: 'RECORDING', timer: '0:00', meetingUrl: tunnel.url });
+        const recordingUI = ui.generatePlayerUI({ status: 'RECORDING', timer: '0:00', meetingUrl: meetingUrl, vncUrl: tunnel.url });
         await bot.telegram.editMessageText(chatId, playerMessageId, null, recordingUI.text, {
             parse_mode: 'Markdown', ...recordingUI.markup
         });

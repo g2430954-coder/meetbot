@@ -16,21 +16,22 @@ const STATUS_ICONS = {
 };
 
 function generatePlayerUI(params) {
-    const { status, timer, meetingUrl, partCount, progress } = params;
+    const { status, timer, meetingUrl, vncUrl, partCount, progress } = params;
     const icon = STATUS_ICONS[status] || '🛸';
 
     let uiText = `${icon} *GHOST meet | LIVE PLAYER*\n`;
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
     uiText += `📍 Status: *${status}*\n`;
 
-    const isVncLink = meetingUrl && (meetingUrl.includes('vnc.html') || meetingUrl.includes('serveo'));
+    if (meetingUrl && !meetingUrl.includes('serveo')) {
+        uiText += `🔗 Room Link: [MEETING ROOM](${meetingUrl})\n`;
+    }
 
-    if (meetingUrl) {
-        if (isVncLink) {
-            uiText += `🖥 Live RDP View: [OPEN RDP DASHBOARD](${meetingUrl})\n`;
-        } else {
-            uiText += `🔗 Room Link: [MEETING ROOM](${meetingUrl})\n`;
-        }
+    const rawRdpUrl = vncUrl || (meetingUrl && meetingUrl.includes('serveo') ? meetingUrl : null);
+    let finalVncUrl = null;
+    if (rawRdpUrl) {
+        finalVncUrl = rawRdpUrl.includes('vnc.html') ? rawRdpUrl : `${rawRdpUrl.replace(/\/$/, '')}/vnc.html?autoconnect=true`;
+        uiText += `🖥 Live RDP View: [OPEN RDP DASHBOARD](${finalVncUrl})\n`;
     }
 
     if (timer) {
@@ -56,7 +57,7 @@ function generatePlayerUI(params) {
     } else if (status === 'RECORDING') {
         uiText += `🔴 Capturing 1080p HD Feed + Audio (Stereo)...`;
     } else if (status === 'FINALIZING') {
-        uiText += `⚙️ Splitting video segments & generating Hinglish AI transcript...`;
+        uiText += `⚙️ Splitting video segments & generating English AI transcript...`;
     } else if (status === 'COMPLETED') {
         uiText += `✅ All video parts and transcript secured in group storage.`;
     }
@@ -64,8 +65,8 @@ function generatePlayerUI(params) {
     // Inline Buttons based on state
     const buttons = [];
     
-    if (isVncLink) {
-        buttons.push([Markup.button.url('🖥 OPEN LIVE RDP VIEW', meetingUrl)]);
+    if (finalVncUrl) {
+        buttons.push([Markup.button.url('🖥 OPEN LIVE RDP VIEW', finalVncUrl)]);
     }
 
     if (status === 'READY') {
