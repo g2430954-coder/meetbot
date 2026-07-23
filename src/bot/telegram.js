@@ -26,31 +26,58 @@ const sessionState = {
 };
 
 /**
- * STRICT GROUP AUTHORIZATION MIDDLEWARE
- * Ensures the bot only responds within the authorized GHOST meet group.
+ * Helper to extract meeting URL from text (supports both /join <url> and raw meeting links)
+ */
+function extractMeetingUrl(text) {
+    if (!text) return null;
+    text = text.trim();
+
+    // 1. /join command syntax
+    if (text.startsWith('/join')) {
+        const parts = text.split(/\s+/);
+        if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
+            return parts[1].trim();
+        }
+        return null;
+    }
+
+    // 2. Direct raw meeting link syntax (meet.google.com or meet links)
+    const urlMatch = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:meet\.google\.com|google\.com\/meet|[a-zA-Z0-9-]+\/meet)[^\s]*/i);
+    if (urlMatch) {
+        return urlMatch[0].trim();
+    }
+
+    return null;
+}
+
+/**
+ * STRICT GROUP AUTHORIZATION & AUTO-LINK DETECTION MIDDLEWARE
  */
 bot.use(async (ctx, next) => {
     if (!ctx.chat) return;
 
     const chatId = ctx.chat.id.toString();
 
-    // 1. Only allow commands from the authorized group ID
+    // 1. Authorization Check: Silent ignore for unauthorized groups (No annoying popups!)
     if (ALLOWED_GROUP_ID && chatId !== ALLOWED_GROUP_ID) {
-        if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/')) {
-            logger.warn(`Unauthorized access attempt from Chat ID: ${chatId}`);
-            return ctx.replyWithMarkdown(
-                "🚨 *GHOST meet | ACCESS DENIED*\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "This terminal is encrypted and locked to a specific authorized group.\n\n" +
-                "*System Action:* Connection Rejected."
-            );
-        }
-        return; // Silent ignore for non-authorized chats
+        return; 
     }
 
-    // 2. SILENT IGNORE: Ignore regular chat messages or raw links (bot only responds to / commands)
-    if (ctx.message && ctx.message.text && !ctx.message.text.startsWith('/')) {
-        return; // Do not respond to normal chat messages or raw links without /join
+    // 2. Raw Link Auto-Detection
+    if (ctx.message && ctx.message.text) {
+        const text = ctx.message.text.trim();
+
+        // If it's NOT a / command, check if it's a meeting link
+        if (!text.startsWith('/')) {
+            const rawUrl = extractMeetingUrl(text);
+            if (rawUrl) {
+                // Automatically convert raw meeting link into /join command!
+                ctx.message.text = `/join ${rawUrl}`;
+                return next();
+            }
+            // Silent ignore for normal chat messages & non-meeting links (No annoying popups!)
+            return;
+        }
     }
 
     return next();
@@ -87,7 +114,7 @@ bot.command('join', async (ctx) => {
         return ctx.replyWithMarkdown("⚠️ *Already Joined*\n━━━━━━━━━━━━━━━━━━━━━━\nMeeting is already active. Use `/stop` to end the session first.");
     }
 
-    const meetingUrl = ctx.message.text.split(/\s+/)[1]?.trim();
+    const meetingUrl = extractMeetingUrl(ctx.message.text);
     if (!meetingUrl || !/^https?:\/\//i.test(meetingUrl)) {
         return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL. Usage: `/join https://meet.google.com/...` ");
     }
