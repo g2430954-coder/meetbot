@@ -400,33 +400,40 @@ bot.action('help_guide', (ctx) => {
     );
 });
 
-// Launch sequence
+// Express Health Check Server for Render Port Scanner
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 app.get('/', (req, res) => res.status(200).send('OK'));
+app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/healthz', (req, res) => res.status(200).send('OK'));
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Server is listening on port ${PORT}`);
+    console.log(`✅ Express Web Health Server actively listening on 0.0.0.0:${PORT}`);
 });
 
+// Telegram Bot Launch Sequence
 async function launchBot() {
     try {
         await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
         await new Promise(r => setTimeout(r, 1000));
 
-        await bot.launch({ dropPendingUpdates: true });
-        console.log("🚀 GHOST meet Bot is initialized and guarding the group.");
+        bot.launch({ dropPendingUpdates: true }).then(() => {
+            console.log("🚀 GHOST meet Bot initialized and guarding Telegram group.");
+        }).catch(async (err) => {
+            console.error("🚨 Telegram Bot Launch Error:", err.message);
+            if (err.message && err.message.includes("409")) {
+                console.log("⚠️ 409 Conflict detected. Retrying in 3s...");
+                await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+                setTimeout(launchBot, 3000);
+            } else {
+                console.log("⏳ Retrying bot connection in 5 seconds...");
+                setTimeout(launchBot, 5000);
+            }
+        });
     } catch (err) {
-        console.error("🚨 Telegram Launch Error:", err.message);
-        if (err.message && err.message.includes("409")) {
-            console.log("⚠️ 409 Conflict detected. Clearing pending updates & retrying in 3s...");
-            await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
-            setTimeout(launchBot, 3000);
-        } else {
-            console.log("⏳ Retrying bot connection in 10 seconds...");
-            setTimeout(launchBot, 10000);
-        }
+        console.error("🚨 Launch Initialization Error:", err.message);
+        setTimeout(launchBot, 5000);
     }
 }
 
