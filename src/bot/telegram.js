@@ -26,7 +26,7 @@ const sessionState = {
 };
 
 /**
- * Helper to extract meeting URL from text (supports both /join <url> and raw meeting links)
+ * Helper to extract meeting URL from text (supports both /join <url> and raw HTTP/HTTPS meeting links)
  */
 function extractMeetingUrl(text) {
     if (!text) return null;
@@ -38,16 +38,11 @@ function extractMeetingUrl(text) {
         if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) {
             return parts[1].trim();
         }
-        return null;
     }
 
-    // 2. Direct raw meeting link syntax (meet.google.com or meet links)
-    const urlMatch = text.match(/https?:\/\/(?:[a-zA-Z0-9-]+\.)*(?:meet\.google\.com|google\.com\/meet|[a-zA-Z0-9-]+\/meet)[^\s]*/i);
-    if (urlMatch) {
-        return urlMatch[0].trim();
-    }
-
-    return null;
+    // 2. Direct raw meeting link syntax (matches any http/https URL)
+    const match = text.match(/https?:\/\/[^\s]+/i);
+    return match ? match[0].trim() : null;
 }
 
 /**
@@ -58,8 +53,17 @@ bot.use(async (ctx, next) => {
 
     const chatId = ctx.chat.id.toString();
 
-    // 1. Authorization Check: Silent ignore for unauthorized groups (No annoying popups!)
+    // 1. Authorization Check: If ALLOWED_GROUP_ID is configured and doesn't match, warn & reject / commands
     if (ALLOWED_GROUP_ID && chatId !== ALLOWED_GROUP_ID) {
+        if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/')) {
+            logger.warn(`Unauthorized access attempt from Chat ID: ${chatId} (Expected: ${ALLOWED_GROUP_ID})`);
+            return ctx.replyWithMarkdown(
+                `🚨 *GHOST meet | ACCESS DENIED*\n` +
+                `━━━━━━━━━━━━━━━━━━━━━━\n` +
+                `This terminal is encrypted and locked to Authorized Group ID: \`${ALLOWED_GROUP_ID}\`.\n\n` +
+                `*Your Chat ID:* \`${chatId}\``
+            );
+        }
         return; 
     }
 
@@ -67,7 +71,7 @@ bot.use(async (ctx, next) => {
     if (ctx.message && ctx.message.text) {
         const text = ctx.message.text.trim();
 
-        // If it's NOT a / command, check if it's a meeting link
+        // If it's NOT a / command, check if it contains a meeting URL
         if (!text.startsWith('/')) {
             const rawUrl = extractMeetingUrl(text);
             if (rawUrl) {
@@ -75,7 +79,7 @@ bot.use(async (ctx, next) => {
                 ctx.message.text = `/join ${rawUrl}`;
                 return next();
             }
-            // Silent ignore for normal chat messages & non-meeting links (No annoying popups!)
+            // Silent ignore for normal chat text
             return;
         }
     }
@@ -106,7 +110,7 @@ bot.start((ctx) => {
 });
 
 /**
- * /join <url> - Deploy visual engine (FIXED: No more double-click needed)
+ * /join <url> - Deploy visual engine (FIXED: Auto-triggers GitHub Dispatch if PAT_TOKEN or RENDER set)
  */
 bot.command('join', async (ctx) => {
     // PREVENT DOUBLE EXECUTION
@@ -127,12 +131,12 @@ bot.command('join', async (ctx) => {
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     sessionState.playerMessageId = msg.message_id;
 
-    // Check if we are on Render
-    if (process.env.RENDER) {
+    // Trigger GitHub Runner if running on Render or if PAT_TOKEN is available
+    if (process.env.RENDER || process.env.PAT_TOKEN) {
         try {
             await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
 
-            // Update UI to DISPATCHED
+            // Update UI to DEPLOYING
             const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
             await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, dispatchedUI.text, {
                 parse_mode: 'Markdown',
