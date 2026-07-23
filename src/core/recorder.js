@@ -43,9 +43,7 @@ async function startRecording() {
         '-pix_fmt', 'yuv420p',
         '-c:a', 'aac',
         '-b:a', '128k',
-        '-y', rawVideoPath, // Record to MKV first
-        '-map', '1:a',
-        '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', audioExtractPath
+        '-y', rawVideoPath
     ]);
 
     ffmpegProcess.on('error', (err) => logger.error(`FFMPEG Startup Error: ${err.message}`));
@@ -58,22 +56,13 @@ async function stopRecording() {
     if (ffmpegProcess) {
         logger.info("Stopping FFMPEG process...");
         if (ffmpegProcess.stdin && !ffmpegProcess.stdin.destroyed && ffmpegProcess.stdin.writable) {
-            try {
-                ffmpegProcess.stdin.write('q');
-            } catch (err) {
-                logger.warn(`Could not write to FFmpeg stdin: ${err.message}`);
-                ffmpegProcess.kill('SIGKILL');
-            }
-        } else {
-            ffmpegProcess.kill('SIGKILL');
+            try { ffmpegProcess.stdin.write('q'); } catch (e) {}
         }
-
         await new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                logger.warn("FFmpeg exit timeout, killing process...");
-                ffmpegProcess.kill('SIGKILL');
+                if (ffmpegProcess) try { ffmpegProcess.kill('SIGKILL'); } catch (e) {}
                 resolve();
-            }, 10000);
+            }, 4000);
 
             ffmpegProcess.on('exit', () => {
                 clearTimeout(timeout);
@@ -83,11 +72,14 @@ async function stopRecording() {
         });
     }
 
-    logger.info("Converting MKV to optimized MP4 for Telegram...");
+    logger.info("Converting MKV to optimized MP4 and extracting WAV for Telegram...");
     try {
         if (fs.existsSync(rawVideoPath) && fs.statSync(rawVideoPath).size > 0) {
-            // Convert MKV to MP4 with faststart for better playback
+            // Convert MKV to MP4 with faststart for Telegram video playback
             execSync(`ffmpeg -i "${rawVideoPath}" -c copy -movflags +faststart -y "${masterMp4Path}"`);
+            
+            // Extract clean 16kHz mono WAV for Python Speech Recognition
+            execSync(`ffmpeg -i "${rawVideoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioExtractPath}"`);
         } else {
             logger.warn("Raw MKV file is missing or empty.");
         }
