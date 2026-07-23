@@ -210,49 +210,54 @@ async function finalizeAndUpload(vncUrl) {
     }
 }
 
+function getWorkflowStepLog(percent) {
+    if (percent < 20) return "🖥 Step 1/5: Mounting 1080p Virtual Display (Xvfb :99)...";
+    if (percent < 40) return "🔊 Step 2/5: Initializing PulseAudio Stereo Loopback Sink...";
+    if (percent < 65) return "📡 Step 3/5: Establishing Serveo Unlimited Visual RDP Tunnel...";
+    if (percent < 90) return "🌐 Step 4/5: Launching Stealth Chrome & Navigating to Meeting...";
+    return "⚡️ Step 5/5: Finalizing Frame Buffer & Audio Binding...";
+}
+
 async function run() {
     try {
         console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
 
         const msgId = Number(playerMessageId);
 
-        // Step 1: Initialize Virtual Display & Audio Loopback (20%)
-        const step1UI = ui.generatePlayerUI({ 
-            status: 'DEPLOYING', 
-            progress: 20, 
-            meetingUrl: meetingUrl,
-            stepLog: '🖥 Step 1/4: Initializing 1080p Xvfb Display & PulseAudio sink...'
-        });
-        await bot.telegram.editMessageText(chatId, msgId, undefined, step1UI.text, { parse_mode: 'Markdown', ...step1UI.markup }).catch(() => {});
+        // Start continuous real-time progress streamer on Telegram
+        let deployPercent = 5;
+        const deployTimer = setInterval(async () => {
+            if (deployPercent < 95) {
+                deployPercent += Math.floor(Math.random() * 5) + 5; // Increments +5% to +9% smoothly
+                if (deployPercent > 95) deployPercent = 95;
 
-        // Step 2: Establish Serveo Live Visual RDP Bridge (50%)
-        const step2UI = ui.generatePlayerUI({ 
-            status: 'DEPLOYING', 
-            progress: 50, 
-            meetingUrl: meetingUrl,
-            stepLog: '📡 Step 2/4: Establishing Serveo Live Visual RDP Bridge...'
-        });
-        await bot.telegram.editMessageText(chatId, msgId, undefined, step2UI.text, { parse_mode: 'Markdown', ...step2UI.markup }).catch(() => {});
+                const logMsg = getWorkflowStepLog(deployPercent);
+                const deployUI = ui.generatePlayerUI({
+                    status: 'DEPLOYING',
+                    progress: deployPercent,
+                    meetingUrl: meetingUrl,
+                    stepLog: logMsg
+                });
 
+                await bot.telegram.editMessageText(chatId, msgId, undefined, deployUI.text, {
+                    parse_mode: 'Markdown', ...deployUI.markup
+                }).catch(() => {});
+            }
+        }, 2000);
+
+        // Launch Browser & Serveo Tunnel
         const tunnel = await browserManager.launchMeeting(meetingUrl);
 
-        // Step 3: Launch Stealth Chrome & Connect Room (80%)
-        const step3UI = ui.generatePlayerUI({ 
-            status: 'DEPLOYING', 
-            progress: 80, 
-            meetingUrl: meetingUrl, 
-            vncUrl: tunnel.url,
-            stepLog: '🌐 Step 3/4: Stealth Chrome Launched & Room Connection Established!'
-        });
-        await bot.telegram.editMessageText(chatId, msgId, undefined, step3UI.text, { parse_mode: 'Markdown', ...step3UI.markup }).catch(() => {});
+        // Stop continuous streamer
+        clearInterval(deployTimer);
 
-        // Step 4: Standby (100%)
+        // Update Telegram Message to 100% READY Standby State with RDP Link & START RECORDING button
         const readyUI = ui.generatePlayerUI({ 
             status: 'READY', 
             progress: 100, 
             meetingUrl: meetingUrl, 
             vncUrl: tunnel.url,
-            stepLog: '✨ Step 4/4: System Standby (100% Ready). Tap button below or send /record to start.'
+            stepLog: '✨ System Standby (100% Ready). Tap button below or send /record to start.'
         });
         await bot.telegram.editMessageText(chatId, msgId, undefined, readyUI.text, {
             parse_mode: 'Markdown', ...readyUI.markup
