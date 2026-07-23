@@ -2,7 +2,7 @@ name: GHOST meet Heavy Runner
 
 on:
   repository_dispatch:
-    types: [start_ghost_runner]
+    types: [start_ghost_runner, stop_ghost_runner]
 
 # Full permissions for all security and cleanup tasks
 permissions:
