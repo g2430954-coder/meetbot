@@ -71,7 +71,7 @@ function generatePlayerUI(params) {
 
     if (status === 'READY') {
         buttons.push([Markup.button.callback('⏺ START RECORDING', 'cmd_record')]);
-    } else if (status === 'RECORDING' || status === 'DEPLOYING') {
+    } else if (status === 'RECORDING') {
         buttons.push([Markup.button.callback('🛑 STOP & SAVE', 'cmd_stop')]);
     }
 

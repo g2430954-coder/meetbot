@@ -159,7 +159,7 @@ bot.command('join', async (ctx) => {
     // Always trigger GitHub Actions Runner for heavy Chrome & FFmpeg execution
     try {
         await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
-        sessionState.isRecording = true; // Mark active so /stop works anytime
+        sessionState.isRecording = false; // Standby state until user clicks START RECORDING
 
         // Update UI to DEPLOYING
         const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
