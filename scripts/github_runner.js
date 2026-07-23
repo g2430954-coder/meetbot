@@ -120,35 +120,46 @@ async function finalizeAndUpload(vncUrl) {
 
     try {
         // Phase 1: Stop FFMPEG
-        const finalizingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 20, meetingUrl: vncUrl || meetingUrl });
+        const finalizingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 15, meetingUrl: vncUrl || meetingUrl });
         await bot.telegram.editMessageText(chatId, playerMessageId, null, finalizingUI.text, { parse_mode: 'Markdown' });
 
         const stopPromise = recorder.stopRecording();
 
         // Phase 2: Processing & STT
-        const processingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 50, meetingUrl: vncUrl || meetingUrl });
+        const processingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 40, meetingUrl: vncUrl || meetingUrl });
         await bot.telegram.editMessageText(chatId, playerMessageId, null, processingUI.text, { parse_mode: 'Markdown' });
 
         const assets = await stopPromise;
+        const totalChunks = assets.videoChunks.length;
 
-        // Phase 3: Uploading Video Segments & Transcript
-        const uploadingUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 80, meetingUrl: vncUrl || meetingUrl });
-        await bot.telegram.editMessageText(chatId, playerMessageId, null, uploadingUI.text, { parse_mode: 'Markdown' });
+        // Phase 3: Uploading Video Segments
+        for (let i = 0; i < totalChunks; i++) {
+            const uploadProgress = Math.round(50 + ((i + 1) / (totalChunks + 1)) * 40);
+            const uploadingUI = ui.generatePlayerUI({ 
+                status: 'FINALIZING', 
+                progress: uploadProgress, 
+                meetingUrl: vncUrl || meetingUrl 
+            });
+            await bot.telegram.editMessageText(chatId, playerMessageId, null, uploadingUI.text, { parse_mode: 'Markdown' });
 
-        for (let i = 0; i < assets.videoChunks.length; i++) {
             await bot.telegram.sendVideo(chatId, { source: assets.videoChunks[i] }, { 
-                caption: `🎥 GHOST meet Recording | Part ${i+1} of ${assets.videoChunks.length}` 
+                caption: `🎥 GHOST meet Recording | Part ${i+1} of ${totalChunks}` 
             });
         }
 
+        // Phase 4: Uploading AI Transcript
         if (assets.transcriptPath) {
+            const transcriptUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 95, meetingUrl: vncUrl || meetingUrl });
+            await bot.telegram.editMessageText(chatId, playerMessageId, null, transcriptUI.text, { parse_mode: 'Markdown' });
+
             await bot.telegram.sendDocument(chatId, { source: assets.transcriptPath }, { 
                 caption: "📜 *AI Meeting Transcript (100% English Output)*", 
                 parse_mode: 'Markdown' 
             });
         }
 
-        const completedUI = ui.generatePlayerUI({ status: 'COMPLETED', progress: 100, partCount: assets.videoChunks.length, meetingUrl: vncUrl || meetingUrl });
+        // Phase 5: Complete State
+        const completedUI = ui.generatePlayerUI({ status: 'COMPLETED', progress: 100, partCount: totalChunks, meetingUrl: vncUrl || meetingUrl });
         await bot.telegram.editMessageText(chatId, playerMessageId, null, completedUI.text, { parse_mode: 'Markdown' });
 
         setTimeout(() => {
