@@ -132,16 +132,20 @@ bot.start((ctx) => {
 /**
  * /join <url> - Deploy visual engine (FIXED: Auto-triggers GitHub Dispatch with silent deduplication)
  */
+/**
+ * /join <url> - Deploy visual engine (Auto-triggers GitHub Dispatch with silent deduplication)
+ */
 bot.command('join', async (ctx) => {
-    // PREVENT DOUBLE EXECUTION
-    if (sessionState.isJoined) {
-        return; // Silent return on duplicate join requests
-    }
-
     const meetingUrl = extractMeetingUrl(ctx.message.text);
     if (!meetingUrl || !/^https?:\/\//i.test(meetingUrl)) {
         return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL. Usage: `/join https://meet.google.com/...` ");
     }
+
+    // Check existing active session
+    if (sessionState.isJoined || sessionState.isRecording) {
+        return ctx.replyWithMarkdown("⚠️ *Active Session Exists*\n━━━━━━━━━━━━━━━━━━━━━━\nA session is already active. Use `/stop` to finalize it before joining a new room.");
+    }
+
     sessionState.currentUrl = meetingUrl;
     sessionState.currentChatId = ctx.chat.id;
     sessionState.isJoined = true;
@@ -151,10 +155,11 @@ bot.command('join', async (ctx) => {
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     sessionState.playerMessageId = msg.message_id;
 
-    // Trigger GitHub Runner if running on Render or if PAT_TOKEN is available
+    // Trigger GitHub Runner if running on Render or PAT_TOKEN set
     if (process.env.RENDER || process.env.PAT_TOKEN) {
         try {
             await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
+            sessionState.isRecording = true; // Mark active so /stop works anytime
 
             // Update UI to DEPLOYING
             const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
@@ -165,13 +170,14 @@ bot.command('join', async (ctx) => {
         } catch (error) {
             logger.error("GitHub Trigger Failure:", error);
             sessionState.isJoined = false;
+            sessionState.isRecording = false;
             const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
             await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, errorUI.text + `\n\n🚨 *Dispatch Failure:* ${error.message}`, { parse_mode: 'Markdown' });
         }
         return;
     }
 
-    // Local/Non-Render logic
+    // Local / Non-Render logic
     try {
         const tunnel = await browserManager.launchMeeting(meetingUrl);
         const successUI = ui.generatePlayerUI({ status: 'READY', meetingUrl: tunnel.url });
@@ -188,15 +194,15 @@ bot.command('join', async (ctx) => {
 });
 
 /**
- * /record - Start HD FFMPEG Stream with REAL-TIME TIMER
+ * Handle Record execution
  */
-bot.command('record', async (ctx) => {
+async function handleRecord(ctx) {
     if (!sessionState.isJoined) {
-        return ctx.replyWithMarkdown("❌ *Error:* Not joined yet. Use `/join <url>` first.");
+        return ctx.replyWithMarkdown("❌ *Error:* Not joined yet. Send Google Meet link or `/join <url>` first.");
     }
 
     if (sessionState.isRecording) {
-        return ctx.replyWithMarkdown("⚠️ *Already Recording*\n━━━━━━━━━━━━━━━━━━━━━━\nUse `/stop` to end the current recording.");
+        return ctx.replyWithMarkdown("⚠️ *Already Recording*\n━━━━━━━━━━━━━━━━━━━━━━\nUse `/stop` or tap *STOP & SAVE* to end recording.");
     }
 
     sessionState.isRecording = true;
@@ -208,7 +214,7 @@ bot.command('record', async (ctx) => {
         // START REAL-TIME TIMER UPDATES
         let elapsedSeconds = 0;
         sessionState.timerInterval = setInterval(async () => {
-            elapsedSeconds++;
+            elapsedSeconds += 3;
             const minutes = Math.floor(elapsedSeconds / 60);
             const seconds = elapsedSeconds % 60;
             const timeStr = `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -230,9 +236,10 @@ bot.command('record', async (ctx) => {
                     );
                 }
             } catch (err) {
-                logger.warn("Timer update error (expected):", err.message);
+                if (err.description && err.description.includes("message is not modified")) return;
+                logger.warn("Timer update notice:", err.message);
             }
-        }, 5000); // Update every 5 seconds to avoid rate limits
+        }, 3000);
 
     } catch (error) {
         logger.error("Recording Start Failure:", error);
@@ -240,17 +247,23 @@ bot.command('record', async (ctx) => {
         if (sessionState.timerInterval) clearInterval(sessionState.timerInterval);
         await ctx.replyWithMarkdown(`🚨 *Recording Error:* ${error.message}`);
     }
+}
+
+bot.command('record', handleRecord);
+bot.action('cmd_record', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    return handleRecord(ctx);
 });
 
 /**
- * /stop - Stop, Chunk, and Upload with REAL-TIME STATUS
+ * Handle Stop & Save execution
  */
-bot.command('stop', async (ctx) => {
-    if (!sessionState.isRecording) {
-        return ctx.replyWithMarkdown("⚠️ *Not Recording*\n━━━━━━━━━━━━━━━━━━━━━━\nStart recording with `/record` first.");
+async function handleStop(ctx) {
+    if (!sessionState.isJoined && !sessionState.isRecording) {
+        return ctx.replyWithMarkdown("⚠️ *Not Recording*\n━━━━━━━━━━━━━━━━━━━━━━\nStart a session with `/join <url>` first.");
     }
 
-    // STOP TIMER
+    // STOP LOCAL TIMER
     if (sessionState.timerInterval) {
         clearInterval(sessionState.timerInterval);
         sessionState.timerInterval = null;
@@ -264,13 +277,39 @@ bot.command('stop', async (ctx) => {
     });
 
     if (sessionState.playerMessageId) {
-        await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, stoppingUI.text, {
-            parse_mode: 'Markdown', ...stoppingUI.markup
-        });
+        try {
+            await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, stoppingUI.text, {
+                parse_mode: 'Markdown', ...stoppingUI.markup
+            });
+        } catch (e) {}
     }
 
+    // Cloud GitHub Runner mode
+    if (process.env.RENDER || process.env.PAT_TOKEN) {
+        try {
+            await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
+            await ctx.replyWithMarkdown(
+                "⏳ *Stop Signal Dispatched*\n" +
+                "━━━━━━━━━━━━━━━━━━━━━━\n" +
+                "⚙️ Cloud runner is finalizing capture, splitting video chunks, and processing Hinglish AI transcription.\n" +
+                "📁 Video parts and transcript document will be uploaded here shortly."
+            );
+        } catch (error) {
+            logger.error("GitHub Stop Trigger Failure:", error);
+            await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Error:* ${error.message}`);
+        } finally {
+            // RESET SESSION STATE
+            sessionState.isJoined = false;
+            sessionState.isRecording = false;
+            sessionState.currentUrl = null;
+            sessionState.playerMessageId = null;
+            sessionState.recordingStartTime = null;
+        }
+        return;
+    }
+
+    // Local execution mode
     try {
-        // Get recording duration
         const duration = sessionState.recordingStartTime ? 
             Math.round((Date.now() - sessionState.recordingStartTime) / 1000) : 0;
         const minutes = Math.floor(duration / 60);
@@ -286,17 +325,19 @@ bot.command('stop', async (ctx) => {
         });
 
         if (sessionState.playerMessageId) {
-            await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, completedUI.text, {
-                parse_mode: 'Markdown', ...completedUI.markup
-            });
+            try {
+                await ctx.telegram.editMessageText(ctx.chat.id, sessionState.playerMessageId, null, completedUI.text, {
+                    parse_mode: 'Markdown', ...completedUI.markup
+                });
+            } catch (e) {}
         }
 
-        // Upload Video Segments with progress
+        // Upload Video Segments
         for (let i = 0; i < assets.videoChunks.length; i++) {
             await ctx.replyWithVideo(
                 { source: assets.videoChunks[i] },
                 { 
-                    caption: `🎥 GHOST meet Recording | Part ${i + 1} of ${assets.videoChunks.length}\n⏱ Duration: ${minutes}:${seconds.toString().padStart(2, '0')}` 
+                    caption: `🎥 GHOST meet Recording | Part ${i + 1} of ${assets.videoChunks.length}\n⏱ Duration: ${timeStr}` 
                 }
             );
         }
@@ -305,16 +346,9 @@ bot.command('stop', async (ctx) => {
         if (assets.transcriptPath) {
             await ctx.replyWithDocument(
                 { source: assets.transcriptPath },
-                { caption: "📜 AI Meeting Transcript (English Output)\n📝 Full continuous transcription" }
+                { caption: "📜 AI Meeting Transcript (100% English / Roman Script)\n📝 Full continuous transcription" }
             );
         }
-
-        // RESET SESSION STATE
-        sessionState.isJoined = false;
-        sessionState.isRecording = false;
-        sessionState.currentUrl = null;
-        sessionState.lastMessageId = null;
-        sessionState.recordingStartTime = null;
 
         const finalUI =
             "✨ *SESSION COMPLETE*\n" +
@@ -322,22 +356,35 @@ bot.command('stop', async (ctx) => {
             "✅ All assets uploaded successfully.\n" +
             "📁 Files secured in group storage.\n" +
             "💤 Engine hibernated.\n\n" +
-            "Use `/join <url>` to start a new session.";
+            "Send Google Meet link to start a new session.";
         await ctx.replyWithMarkdown(finalUI);
 
     } catch (error) {
         logger.error("Finalization Failure:", error);
-        sessionState.isRecording = false;
         await ctx.replyWithMarkdown(`🚨 *Stop Error:* ${error.message}`);
+    } finally {
+        // RESET SESSION STATE FIX
+        sessionState.isJoined = false;
+        sessionState.isRecording = false;
+        sessionState.currentUrl = null;
+        sessionState.playerMessageId = null;
+        sessionState.recordingStartTime = null;
     }
+}
+
+bot.command('stop', handleStop);
+bot.action('cmd_stop', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    return handleStop(ctx);
 });
 
 /**
  * /status - Real-time diagnostics and session status
  */
 bot.command('status', (ctx) => {
-    const recordingStatus = sessionState.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE";
+    const recordingStatus = sessionState.isRecording ? "🔴 ACTIVE RECORDING" : "⚪️ IDLE";
     const joinStatus = sessionState.isJoined ? "🟢 CONNECTED" : "🔴 DISCONNECTED";
+    const modeStr = (process.env.RENDER || process.env.PAT_TOKEN) ? "☁️ Cloud Runner (GitHub Actions)" : "🖥 Local Node Process";
     
     let duration = "0:00";
     if (sessionState.recordingStartTime) {
@@ -350,9 +397,10 @@ bot.command('status', (ctx) => {
         "📟 *SYSTEM DIAGNOSTICS*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
         `📍 Session Status: ${joinStatus}\n` +
-        `⏺ Recording: ${recordingStatus}\n` +
+        `⏺ Capture Engine: ${recordingStatus}\n` +
         `⏱ Duration: *${duration}*\n` +
-        "⚡️ Kernel: *Stable*\n" +
+        `⚙️ Execution Mode: *${modeStr}*\n` +
+        "⚡️ Kernel: *100% Operational*\n" +
         "🖥 Virtual Display: *Active (:99)*\n" +
         "🎥 FFMPEG Pipeline: *Ready*\n" +
         "🗣 STT Engine: *Bilingual Mode (Hindi/Hinglish)*\n" +
@@ -362,13 +410,29 @@ bot.command('status', (ctx) => {
 
 // Inline Actions
 bot.action('engine_status', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply("System pulse: 100%. Encryption layers active. Engine performing within parameters.");
+    try { ctx.answerCbQuery(); } catch (e) {}
+    const recordingStatus = sessionState.isRecording ? "🔴 ACTIVE RECORDING" : "⚪️ IDLE";
+    const joinStatus = sessionState.isJoined ? "🟢 CONNECTED" : "🔴 DISCONNECTED";
+    ctx.replyWithMarkdown(
+        `📟 *ENGINE DIAGNOSTICS*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `📍 Session: ${joinStatus}\n` +
+        `⏺ Recording: ${recordingStatus}\n` +
+        `⚡️ System Pulse: 100% Operational\n` +
+        `🔒 Encryption: Active`
+    );
 });
 
 bot.action('help_guide', (ctx) => {
-    ctx.answerCbQuery();
-    ctx.reply("GHOST meet Manual:\n1. Use /join for the meeting link.\n2. Manual login via Ngrok link.\n3. /record to start.\n4. /stop to get the files.");
+    try { ctx.answerCbQuery(); } catch (e) {}
+    ctx.replyWithMarkdown(
+        `📖 *GHOST meet Quick Manual*\n` +
+        `━━━━━━━━━━━━━━━━━━━━━━\n` +
+        `1️⃣ Send Google Meet link directly or use \`/join <url>\`\n` +
+        `2️⃣ Click *OPEN LIVE RDP VIEW* to view live browser session\n` +
+        `3️⃣ Tap *START RECORDING* or \`/record\`\n` +
+        `4️⃣ Tap *STOP & SAVE* or \`/stop\` to get video & transcript`
+    );
 });
 
 // Launch sequence

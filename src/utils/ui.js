@@ -47,12 +47,18 @@ function generatePlayerUI(params) {
 
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
-    if (status === 'READY') {
+    if (status === 'INITIALIZING') {
+        uiText += `⏳ Initializing virtual frame buffer & audio bridge...`;
+    } else if (status === 'DEPLOYING') {
+        uiText += `🚀 Cloud Runner deployed. Launching browser & live feed...`;
+    } else if (status === 'READY') {
         uiText += `✨ System Standby. Tap button below or send /record to start.`;
     } else if (status === 'RECORDING') {
-        uiText += `⏺ Capturing 1080p HD Feed + Audio...`;
+        uiText += `🔴 Capturing 1080p HD Feed + Audio (Stereo)...`;
     } else if (status === 'FINALIZING') {
-        uiText += `⚙️ Splitting segments & generating English transcript...`;
+        uiText += `⚙️ Splitting video segments & generating Hinglish AI transcript...`;
+    } else if (status === 'COMPLETED') {
+        uiText += `✅ All video parts and transcript secured in group storage.`;
     }
 
     // Inline Buttons based on state
@@ -64,7 +70,7 @@ function generatePlayerUI(params) {
 
     if (status === 'READY') {
         buttons.push([Markup.button.callback('⏺ START RECORDING', 'cmd_record')]);
-    } else if (status === 'RECORDING') {
+    } else if (status === 'RECORDING' || status === 'DEPLOYING') {
         buttons.push([Markup.button.callback('🛑 STOP & SAVE', 'cmd_stop')]);
     }
 

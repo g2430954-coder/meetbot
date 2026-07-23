@@ -1,5 +1,6 @@
 const { Telegraf } = require('telegraf');
 const express = require('express');
+const axios = require('axios');
 const browserManager = require('../src/core/browser');
 const recorder = require('../src/core/recorder');
 const logger = require('../src/utils/logger');
@@ -24,12 +25,48 @@ const chatId = process.env.CHAT_ID || groupId;
 let isRecording = false;
 let heartbeatInterval = null;
 let recordingStartTime = null;
+const runnerStartTime = Date.now();
 
 // Use built-in chrome on GitHub
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
 /**
- * Animated Heartbeat for Telegram Player UI
+ * Check if a stop_ghost_runner dispatch event was sent to GitHub API
+ */
+async function checkStopSignal() {
+    try {
+        const token = process.env.PAT_TOKEN;
+        const owner = process.env.GITHUB_OWNER;
+        const repo = process.env.GITHUB_REPO;
+        if (!token || !owner || !repo) return false;
+
+        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/events`, {
+            headers: {
+                'Authorization': `token ${token}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            timeout: 3000
+        });
+
+        if (Array.isArray(res.data)) {
+            for (const ev of res.data) {
+                if (ev.type === 'RepositoryDispatchEvent' && ev.payload && ev.payload.action === 'stop_ghost_runner') {
+                    const eventTime = new Date(ev.created_at).getTime();
+                    if (eventTime >= runnerStartTime - 5000) {
+                        console.log("🛑 Stop signal detected from GitHub Dispatch!");
+                        return true;
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        // Silent catch for transient API rate-limiting or network issues
+    }
+    return false;
+}
+
+/**
+ * Animated Heartbeat for Telegram Player UI with real-time timer & stop check
  */
 async function startHeartbeat(vncUrl) {
     recordingStartTime = Date.now();
@@ -38,6 +75,15 @@ async function startHeartbeat(vncUrl) {
             clearInterval(heartbeatInterval);
             return;
         }
+
+        // Check for stop signal from Telegram Bot
+        const shouldStop = await checkStopSignal();
+        if (shouldStop) {
+            clearInterval(heartbeatInterval);
+            await finalizeAndUpload(vncUrl);
+            return;
+        }
+
         const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
         const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
         const secs = (elapsed % 60).toString().padStart(2, '0');
@@ -57,7 +103,7 @@ async function startHeartbeat(vncUrl) {
             if (e.description && e.description.includes("message is not modified")) return;
             console.error("Heartbeat update error:", e.message);
         }
-    }, 5000);
+    }, 3000);
 }
 
 function stopHeartbeat() {
