@@ -1,6 +1,7 @@
 const { Telegraf, Markup } = require('telegraf');
 const dotenv = require('dotenv');
 const express = require('express');
+const path = require('path');
 const browserManager = require('../core/browser');
 const recorder = require('../core/recorder');
 const github = require('../utils/github');
