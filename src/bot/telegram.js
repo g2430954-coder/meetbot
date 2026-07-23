@@ -34,9 +34,8 @@ bot.use(async (ctx, next) => {
 
     const chatId = ctx.chat.id.toString();
 
-    // Only allow commands from the specific group ID
-    if (chatId !== ALLOWED_GROUP_ID) {
-        // If it's a private message or unauthorized group, notify and block
+    // 1. Only allow commands from the authorized group ID
+    if (ALLOWED_GROUP_ID && chatId !== ALLOWED_GROUP_ID) {
         if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/')) {
             logger.warn(`Unauthorized access attempt from Chat ID: ${chatId}`);
             return ctx.replyWithMarkdown(
@@ -46,7 +45,12 @@ bot.use(async (ctx, next) => {
                 "*System Action:* Connection Rejected."
             );
         }
-        return; // Silent ignore for non-command messages
+        return; // Silent ignore for non-authorized chats
+    }
+
+    // 2. SILENT IGNORE: Ignore regular chat messages or raw links (bot only responds to / commands)
+    if (ctx.message && ctx.message.text && !ctx.message.text.startsWith('/')) {
+        return; // Do not respond to normal chat messages or raw links without /join
     }
 
     return next();
