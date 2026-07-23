@@ -300,7 +300,7 @@ async function handleStop(ctx) {
         // Upload Video Segments
         for (let i = 0; i < assets.videoChunks.length; i++) {
             await ctx.replyWithVideo(
-                { source: assets.videoChunks[i] },
+                { source: fs.createReadStream(assets.videoChunks[i]) },
                 { 
                     caption: `🎥 GHOST meet Recording | Part ${i + 1} of ${assets.videoChunks.length}\n⏱ Duration: ${timeStr}` 
                 }
@@ -310,7 +310,7 @@ async function handleStop(ctx) {
         // Upload AI Transcript
         if (assets.transcriptPath) {
             await ctx.replyWithDocument(
-                { source: assets.transcriptPath },
+                { source: fs.createReadStream(assets.transcriptPath), filename: 'GHOST_meet_Transcript.txt' },
                 { caption: "📜 AI Meeting Transcript (100% English / Roman Script)\n📝 Full continuous transcription" }
             );
         }

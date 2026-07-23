@@ -1,16 +1,14 @@
 const { Telegraf } = require('telegraf');
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs-extra');
 const browserManager = require('../src/core/browser');
 const recorder = require('../src/core/recorder');
-const logger = require('../src/utils/logger');
-const ui = require('../src/utils/ui');
+const logger = require('../utils/logger');
+const ui = require('../utils/ui');
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
     console.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is missing in GitHub Secrets!");
-    console.error("👉 Fix: Go to GitHub Repo -> Settings -> Secrets and variables -> Actions -> New repository secret");
-    console.error("   Name: TELEGRAM_BOT_TOKEN");
-    console.error("   Value: <Your Telegram Bot Token>");
     process.exit(1);
 }
 
@@ -35,7 +33,7 @@ process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
  */
 async function checkRecordSignal() {
     try {
-        const token = process.env.PAT_TOKEN;
+        const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
         const owner = process.env.GITHUB_OWNER;
         const repo = process.env.GITHUB_REPO;
         if (!token || !owner || !repo) return false;
@@ -70,7 +68,7 @@ async function checkRecordSignal() {
  */
 async function checkStopSignal() {
     try {
-        const token = process.env.PAT_TOKEN;
+        const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
         const owner = process.env.GITHUB_OWNER;
         const repo = process.env.GITHUB_REPO;
         if (!token || !owner || !repo) return false;
@@ -181,7 +179,7 @@ async function finalizeAndUpload(vncUrl) {
             });
             await bot.telegram.editMessageText(chatId, msgId, undefined, uploadingUI.text, { parse_mode: 'Markdown', ...uploadingUI.markup }).catch(() => {});
 
-            await bot.telegram.sendVideo(chatId, { source: assets.videoChunks[i] }, { 
+            await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(assets.videoChunks[i]) }, { 
                 caption: `🎥 GHOST meet Recording | Part ${i+1} of ${totalChunks}` 
             });
         }
@@ -191,7 +189,7 @@ async function finalizeAndUpload(vncUrl) {
             const transcriptUI = ui.generatePlayerUI({ status: 'FINALIZING', progress: 95, meetingUrl: meetingUrl, vncUrl: vncUrl });
             await bot.telegram.editMessageText(chatId, msgId, undefined, transcriptUI.text, { parse_mode: 'Markdown', ...transcriptUI.markup }).catch(() => {});
 
-            await bot.telegram.sendDocument(chatId, { source: assets.transcriptPath }, { 
+            await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(assets.transcriptPath), filename: 'GHOST_meet_Transcript.txt' }, { 
                 caption: "📜 *AI Meeting Transcript (100% English Output)*", 
                 parse_mode: 'Markdown' 
             });
