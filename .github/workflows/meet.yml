@@ -88,25 +88,3 @@ jobs:
           DISPLAY: :99
           CHROME_PATH: /usr/bin/google-chrome-stable
         run: node scripts/github_runner.js
-
-      - name: Wipe History & Self-Destruct
-        if: always()
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "? Wiping previous history and current trace..."
-          # Authorize GH CLI
-          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
-          
-          # Delete the CURRENT run first (this might terminate the job, which is fine)
-          echo "Deleting current run: ${{ github.run_id }}..."
-          gh run delete ${{ github.run_id }} || true
-          
-          # Delete ALL other runs for this workflow to leave no trace
-          WORKFLOW="meet.yml"
-          echo "Purging all workflow runs for $WORKFLOW..."
-          gh run list --workflow "$WORKFLOW" --limit 1000 --json databaseId -q '.[].databaseId' | xargs -I{} gh run delete {} || true
-          
-          # Force delete by name as fallback
-          NAME="GHOST meet Heavy Runner"
-          gh run list --workflow "$NAME" --limit 100 --json databaseId -q '.[].databaseId' | xargs -I{} gh run delete {} || true
