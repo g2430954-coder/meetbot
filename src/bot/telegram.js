@@ -367,16 +367,24 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is listening on port ${PORT}`);
 });
 
-function launchBot() {
-    bot.launch()
-        .then(() => {
-            console.log("🚀 GHOST meet Bot is initialized and guarding the group.");
-        })
-        .catch((err) => {
-            console.error("🚨 Telegram Launch Error:", err.message);
+async function launchBot() {
+    try {
+        await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+        await new Promise(r => setTimeout(r, 1000));
+
+        await bot.launch({ dropPendingUpdates: true });
+        console.log("🚀 GHOST meet Bot is initialized and guarding the group.");
+    } catch (err) {
+        console.error("🚨 Telegram Launch Error:", err.message);
+        if (err.message && err.message.includes("409")) {
+            console.log("⚠️ 409 Conflict detected. Clearing pending updates & retrying in 3s...");
+            await bot.telegram.deleteWebhook({ drop_pending_updates: true }).catch(() => {});
+            setTimeout(launchBot, 3000);
+        } else {
             console.log("⏳ Retrying bot connection in 10 seconds...");
-            setTimeout(launchBot, 10000); // Retry without crashing the Express server
-        });
+            setTimeout(launchBot, 10000);
+        }
+    }
 }
 
 launchBot();
