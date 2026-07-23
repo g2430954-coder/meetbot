@@ -1,0 +1,6 @@
+- `[ ]` Update `ui.js` with real-time fields
+- `[ ]` Update `recorder.js` for live segmenting
+- `[ ]` Update `transcriber.js` with `transcribeSegment`
+- `[ ]` Update `github_runner.js` with segment watcher and real-time uploads
+- `[ ]` Update `telegram.js` with enhanced status monitoring
+- `[ ]` Verify real-time functionality
