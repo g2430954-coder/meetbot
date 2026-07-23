@@ -73,15 +73,16 @@ bot.use(async (ctx, next) => {
 
     const chatId = ctx.chat.id.toString();
 
-    // 1. Authorization Check: If ALLOWED_GROUP_ID is configured and doesn't match, warn & reject / commands
-    if (ALLOWED_GROUP_ID && chatId !== ALLOWED_GROUP_ID) {
-        if (ctx.message && ctx.message.text && ctx.message.text.startsWith('/')) {
+    // 1. Authorization Check: If ALLOWED_GROUP_ID is configured and doesn't match, notify with Chat ID
+    if (ALLOWED_GROUP_ID && ALLOWED_GROUP_ID !== '*' && chatId !== ALLOWED_GROUP_ID) {
+        if (ctx.message && ctx.message.text) {
             logger.warn(`Unauthorized access attempt from Chat ID: ${chatId} (Expected: ${ALLOWED_GROUP_ID})`);
             return ctx.replyWithMarkdown(
                 `🚨 *GHOST meet | ACCESS DENIED*\n` +
                 `━━━━━━━━━━━━━━━━━━━━━━\n` +
-                `This terminal is encrypted and locked to Authorized Group ID: \`${ALLOWED_GROUP_ID}\`.\n\n` +
-                `*Your Chat ID:* \`${chatId}\``
+                `This terminal is locked to Group ID: \`${ALLOWED_GROUP_ID}\`.\n\n` +
+                `*Your Chat ID:* \`${chatId}\`\n\n` +
+                `👉 *Fix:* Set \`ALLOWED_GROUP_ID\` to \`${chatId}\` (or \`*\`) in Render Environment Variables.`
             );
         }
         return; 

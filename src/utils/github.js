@@ -5,10 +5,12 @@ const logger = require('./logger');
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
 async function triggerRunner(meetingUrl, playerMessageId, chatId) {
-    const { PAT_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
+    const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
 
-    if (!PAT_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-        throw new Error("Missing GitHub configuration (PAT_TOKEN, OWNER, or REPO)");
+    if (!PAT_TOKEN) {
+        throw new Error("Missing PAT_TOKEN in Render environment variables. Please add PAT_TOKEN to Render.");
     }
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
@@ -41,10 +43,12 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId) {
  * Sends stop signal to active GitHub Runner via Repository Dispatch
  */
 async function triggerStopRunner(chatId, playerMessageId) {
-    const { PAT_TOKEN, GITHUB_OWNER, GITHUB_REPO } = process.env;
+    const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
 
-    if (!PAT_TOKEN || !GITHUB_OWNER || !GITHUB_REPO) {
-        throw new Error("Missing GitHub configuration (PAT_TOKEN, OWNER, or REPO)");
+    if (!PAT_TOKEN) {
+        throw new Error("Missing PAT_TOKEN in Render environment variables.");
     }
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
