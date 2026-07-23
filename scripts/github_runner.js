@@ -4,8 +4,8 @@ const axios = require('axios');
 const fs = require('fs-extra');
 const browserManager = require('../src/core/browser');
 const recorder = require('../src/core/recorder');
-const logger = require('../utils/logger');
-const ui = require('../utils/ui');
+const logger = require('../src/utils/logger');
+const ui = require('../src/utils/ui');
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
     console.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is missing in GitHub Secrets!");
@@ -216,22 +216,44 @@ async function run() {
 
         const msgId = Number(playerMessageId);
 
-        // Step 1: Mounting 1080p Virtual Display (35%)
-        const step1UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 35, meetingUrl: meetingUrl });
+        // Step 1: Initialize Virtual Display & Audio Loopback (20%)
+        const step1UI = ui.generatePlayerUI({ 
+            status: 'DEPLOYING', 
+            progress: 20, 
+            meetingUrl: meetingUrl,
+            stepLog: '🖥 Step 1/4: Initializing 1080p Xvfb Display & PulseAudio sink...'
+        });
         await bot.telegram.editMessageText(chatId, msgId, undefined, step1UI.text, { parse_mode: 'Markdown', ...step1UI.markup }).catch(() => {});
 
-        // Step 2: Launch Stealth Browser & Serveo VNC Tunnel (65%)
-        const step2UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 65, meetingUrl: meetingUrl });
+        // Step 2: Establish Serveo Live Visual RDP Bridge (50%)
+        const step2UI = ui.generatePlayerUI({ 
+            status: 'DEPLOYING', 
+            progress: 50, 
+            meetingUrl: meetingUrl,
+            stepLog: '📡 Step 2/4: Establishing Serveo Live Visual RDP Bridge...'
+        });
         await bot.telegram.editMessageText(chatId, msgId, undefined, step2UI.text, { parse_mode: 'Markdown', ...step2UI.markup }).catch(() => {});
 
         const tunnel = await browserManager.launchMeeting(meetingUrl);
 
-        // Step 3: Audio & Room Connected (85%)
-        const step3UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 85, meetingUrl: meetingUrl, vncUrl: tunnel.url });
+        // Step 3: Launch Stealth Chrome & Connect Room (80%)
+        const step3UI = ui.generatePlayerUI({ 
+            status: 'DEPLOYING', 
+            progress: 80, 
+            meetingUrl: meetingUrl, 
+            vncUrl: tunnel.url,
+            stepLog: '🌐 Step 3/4: Stealth Chrome Launched & Room Connection Established!'
+        });
         await bot.telegram.editMessageText(chatId, msgId, undefined, step3UI.text, { parse_mode: 'Markdown', ...step3UI.markup }).catch(() => {});
 
-        // Step 4: Update Telegram Message to 100% READY Standby State with START RECORDING button & RDP Link
-        const readyUI = ui.generatePlayerUI({ status: 'READY', progress: 100, meetingUrl: meetingUrl, vncUrl: tunnel.url });
+        // Step 4: Standby (100%)
+        const readyUI = ui.generatePlayerUI({ 
+            status: 'READY', 
+            progress: 100, 
+            meetingUrl: meetingUrl, 
+            vncUrl: tunnel.url,
+            stepLog: '✨ Step 4/4: System Standby (100% Ready). Tap button below or send /record to start.'
+        });
         await bot.telegram.editMessageText(chatId, msgId, undefined, readyUI.text, {
             parse_mode: 'Markdown', ...readyUI.markup
         }).catch((err) => console.error("Initial Ready UI edit error:", err.message));

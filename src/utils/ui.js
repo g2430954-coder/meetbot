@@ -16,7 +16,7 @@ const STATUS_ICONS = {
 };
 
 function generatePlayerUI(params) {
-    const { status, timer, meetingUrl, vncUrl, partCount, progress } = params;
+    const { status, timer, meetingUrl, vncUrl, partCount, progress, stepLog } = params;
     const icon = STATUS_ICONS[status] || '🛸';
 
     let uiText = `${icon} *GHOST meet | LIVE PLAYER*\n`;
@@ -49,16 +49,12 @@ function generatePlayerUI(params) {
 
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
-    if (status === 'INITIALIZING') {
+    if (stepLog) {
+        uiText += `${stepLog}`;
+    } else if (status === 'INITIALIZING') {
         uiText += `⏳ Step 1/4: Initializing virtual frame buffer & audio bridge...`;
     } else if (status === 'DEPLOYING') {
-        if (progress !== undefined && progress < 40) {
-            uiText += `🖥 Step 2/4: Mounting 1080p Virtual Display :99 & PulseAudio...`;
-        } else if (progress !== undefined && progress < 75) {
-            uiText += `📡 Step 3/4: Establishing Serveo Live Visual RDP Bridge...`;
-        } else {
-            uiText += `🌐 Step 4/4: Launching Stealth Chrome & Connecting Room...`;
-        }
+        uiText += `🚀 Deploying Cloud Runner & setting up live RDP feed...`;
     } else if (status === 'READY') {
         uiText += `✨ System Standby (100% Ready). Tap button below or send /record to start.`;
     } else if (status === 'RECORDING') {
