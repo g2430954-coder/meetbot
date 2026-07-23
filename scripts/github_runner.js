@@ -224,12 +224,12 @@ async function run() {
 
         const msgId = Number(playerMessageId);
 
-        // Start continuous real-time progress streamer on Telegram
+        // Start continuous real-time progress streamer on Telegram starting from 5%
         let deployPercent = 5;
         const deployTimer = setInterval(async () => {
-            if (deployPercent < 95) {
-                deployPercent += Math.floor(Math.random() * 5) + 5; // Increments +5% to +9% smoothly
-                if (deployPercent > 95) deployPercent = 95;
+            if (deployPercent < 98) {
+                deployPercent += Math.floor(Math.random() * 4) + 2; // Increments +2% to +5% smoothly
+                if (deployPercent > 98) deployPercent = 98;
 
                 const logMsg = getWorkflowStepLog(deployPercent);
                 const deployUI = ui.generatePlayerUI({
@@ -243,7 +243,7 @@ async function run() {
                     parse_mode: 'Markdown', ...deployUI.markup
                 }).catch(() => {});
             }
-        }, 2000);
+        }, 1200);
 
         // Launch Browser & Serveo Tunnel
         const tunnel = await browserManager.launchMeeting(meetingUrl);
