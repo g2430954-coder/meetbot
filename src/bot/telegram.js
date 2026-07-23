@@ -319,7 +319,18 @@ bot.action('help_guide', (ctx) => {
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.get('/', (req, res) => res.send('GHOST Meet Bot is Running!'));
+app.use(express.static(path.join(__dirname, '../../public')));
+
+app.get('/api/status', (req, res) => {
+    res.json({
+        status: 'SYSTEM OPERATIONAL',
+        uptime: process.uptime(),
+        joined: sessionState.isJoined,
+        recording: sessionState.isRecording,
+        currentUrl: sessionState.currentUrl
+    });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server is listening on port ${PORT}`);
 });

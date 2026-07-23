@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GHOST meet | Next-Gen Automated Capture Suite</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Outfit:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #07090e;
+            --bg-card: rgba(15, 20, 32, 0.75);
+            --border-glow: rgba(0, 242, 254, 0.18);
+            --accent-cyan: #00f2fe;
+            --accent-blue: #4facfe;
+            --accent-purple: #7f00ff;
+            --accent-emerald: #00ff88;
+            --text-main: #f0f4f8;
+            --text-muted: #8a99ad;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            min-height: 100vh;
+            overflow-x: hidden;
+            background-image: 
+                radial-gradient(circle at 15% 15%, rgba(0, 242, 254, 0.08) 0%, transparent 40%),
+                radial-gradient(circle at 85% 85%, rgba(127, 0, 255, 0.08) 0%, transparent 40%);
+        }
+
+        /* Ambient Animated Grid */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-size: 50px 50px;
+            background-image: 
+                linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Top Navigation Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.5rem;
+            font-weight: 900;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 0%, var(--accent-cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .brand-badge {
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: var(--accent-cyan);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 0.25rem 0.6rem;
+            border-radius: 20px;
+            text-transform: uppercase;
+        }
+
+        .status-orb {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(0, 255, 136, 0.08);
+            border: 1px solid rgba(0, 255, 136, 0.25);
+            color: var(--accent-emerald);
+            padding: 0.4rem 1rem;
+            border-radius: 30px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-emerald);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent-emerald);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 136, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(0, 255, 136, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 255, 136, 0); }
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 4rem 1rem 3rem;
+        }
+
+        .hero-title {
+            font-size: 3.5rem;
+            font-weight: 900;
+            line-height: 1.15;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #ffffff 30%, var(--accent-cyan) 70%, var(--accent-purple) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .hero-subtitle {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            max-width: 650px;
+            margin: 0 auto 2.5rem;
+            font-weight: 400;
+            line-height: 1.6;
+        }
+
+        .cta-group {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+        }
+
+        .btn {
+            padding: 0.85rem 1.8rem;
+            border-radius: 12px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            cursor: pointer;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: #000;
+            box-shadow: 0 10px 25px rgba(0, 242, 254, 0.25);
+            border: none;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 30px rgba(0, 242, 254, 0.4);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.04);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(10px);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        /* Metrics Grid */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-glow);
+            border-radius: 18px;
+            padding: 1.75rem;
+            backdrop-filter: blur(16px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: rgba(0, 242, 254, 0.4);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        .card-icon {
+            font-size: 2rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.4rem;
+            color: #fff;
+        }
+
+        .card-desc {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .card-badge {
+            display: inline-block;
+            margin-top: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--accent-cyan);
+            background: rgba(0, 242, 254, 0.08);
+            padding: 0.25rem 0.5rem;
+            border-radius: 6px;
+        }
+
+        /* Terminal Preview Section */
+        .terminal-wrapper {
+            margin-top: 4rem;
+            background: #0d1117;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+        }
+
+        .terminal-header {
+            background: #161b22;
+            padding: 0.75rem 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .window-btn {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .btn-red { background: #ff5f56; }
+        .btn-yellow { background: #ffbd2e; }
+        .btn-green { background: #27c93f; }
+
+        .terminal-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-left: auto;
+        }
+
+        .terminal-body {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            color: #e6edf3;
+            line-height: 1.7;
+        }
+
+        .t-cyan { color: var(--accent-cyan); }
+        .t-green { color: var(--accent-emerald); }
+        .t-purple { color: #d2a8ff; }
+        .t-gray { color: #6e7681; }
+
+        footer {
+            text-align: center;
+            margin-top: 5rem;
+            padding-top: 2rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.06);
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="bg-grid"></div>
+
+    <div class="container">
+        <!-- Top Navigation -->
+        <header>
+            <div class="brand">
+                <span>🛸 GHOST meet</span>
+                <span class="brand-badge">PRO SUITE</span>
+            </div>
+            <div class="status-orb">
+                <div class="pulse-dot"></div>
+                <span id="system-status-text">SYSTEM OPERATIONAL</span>
+            </div>
+        </header>
+
+        <!-- Hero Banner -->
+        <section class="hero">
+            <h1 class="hero-title">Automated Meeting Capture & AI Intelligence</h1>
+            <p class="hero-subtitle">High-definition 1080p stream capture, real-time Virtual Frame Buffer monitoring, and automated English speech-to-text transcript generator.</p>
+            <div class="cta-group">
+                <a href="https://t.me" target="_blank" class="btn btn-primary">
+                    ⚡ Open Telegram Terminal
+                </a>
+                <a href="#console" class="btn btn-secondary">
+                    📟 View System Specs
+                </a>
+            </div>
+        </section>
+
+        <!-- System Architecture Grid -->
+        <div class="grid">
+            <div class="card">
+                <div class="card-icon">🖥</div>
+                <div class="card-title">Virtual Frame Buffer</div>
+                <div class="card-desc">Invisible Xvfb :99 display rendering full 1920x1080 60FPS Google Chrome meeting sessions.</div>
+                <div class="card-badge">xvfb-run :99</div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🎥</div>
+                <div class="card-title">HD FFmpeg Pipeline</div>
+                <div class="card-desc">Multi-stream capture with pulse audio loopback sink and automatic faststart MP4 segmenting.</div>
+                <div class="card-badge">libx264 + aac</div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🗣</div>
+                <div class="card-title">Bilingual AI Speech Engine</div>
+                <div class="card-desc">Google Speech Recognition with automatic English prioritization and Romanized transliteration.</div>
+                <div class="card-badge">100% English Output</div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon">🔒</div>
+                <div class="card-title">Encrypted Group Bridge</div>
+                <div class="card-desc">Strict Telegraf security middleware ensuring bot execution is restricted to authorized groups.</div>
+                <div class="card-badge">Strict Middleware Active</div>
+            </div>
+        </div>
+
+        <!-- Terminal Console View -->
+        <div class="terminal-wrapper" id="console">
+            <div class="terminal-header">
+                <div class="window-btn btn-red"></div>
+                <div class="window-btn btn-yellow"></div>
+                <div class="window-btn btn-green"></div>
+                <div class="terminal-title">ghost-meet-terminal ~ bash</div>
+            </div>
+            <div class="terminal-body">
+                <p><span class="t-cyan">ghost@meet:~$</span> agy system check --all</p>
+                <p class="t-green">✔ [KERNEL] Node.js Runtime: Active</p>
+                <p class="t-green">✔ [DISPLAY] Virtual Display :99 (1920x1080): Active</p>
+                <p class="t-green">✔ [AUDIO] PulseAudio Sink (v_sink.monitor): Ready</p>
+                <p class="t-green">✔ [STT] Python Speech Engine: English/Romanized Script Ready</p>
+                <p class="t-purple">ℹ Operational Telegram Commands:</p>
+                <p class="t-gray">   /join &lt;link&gt;   - Deploy visual engine & VNC Tunnel</p>
+                <p class="t-gray">   /record        - Initiate 1080p HD stream capture</p>
+                <p class="t-gray">   /stop          - Finalize recording & upload transcript</p>
+                <p class="t-gray">   /status        - Display live kernel diagnostics</p>
+                <p><span class="t-cyan">ghost@meet:~$</span> <span class="pulse-dot" style="display:inline-block;"></span></p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer>
+            <p>GHOST meet &copy; 2026 | Powered by <a href="https://github.com/JARRY999Iq/GHOST-meet" target="_blank">GHOST-meet Core Engine</a></p>
+        </footer>
+    </div>
+
+    <script>
+        // Live Health Check fetcher
+        async function checkHealth() {
+            try {
+                const res = await fetch('/api/status');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('system-status-text').innerText = data.status || 'SYSTEM OPERATIONAL';
+                }
+            } catch (e) {
+                // Default fallback
+            }
+        }
+        checkHealth();
+        setInterval(checkHealth, 15000);
+    </script>
+</body>
+</html>
