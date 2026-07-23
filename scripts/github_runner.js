@@ -214,12 +214,25 @@ async function run() {
     try {
         console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
 
-        // 1. Launch Stealth Browser & Serveo VNC Tunnel
+        const msgId = Number(playerMessageId);
+
+        // Step 1: Mounting 1080p Virtual Display (35%)
+        const step1UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 35, meetingUrl: meetingUrl });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, step1UI.text, { parse_mode: 'Markdown', ...step1UI.markup }).catch(() => {});
+
+        // Step 2: Launch Stealth Browser & Serveo VNC Tunnel (65%)
+        const step2UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 65, meetingUrl: meetingUrl });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, step2UI.text, { parse_mode: 'Markdown', ...step2UI.markup }).catch(() => {});
+
         const tunnel = await browserManager.launchMeeting(meetingUrl);
 
-        // 2. Update Telegram Message to READY Standby State with START RECORDING button & RDP Link
-        const readyUI = ui.generatePlayerUI({ status: 'READY', meetingUrl: meetingUrl, vncUrl: tunnel.url });
-        await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, readyUI.text, {
+        // Step 3: Audio & Room Connected (85%)
+        const step3UI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 85, meetingUrl: meetingUrl, vncUrl: tunnel.url });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, step3UI.text, { parse_mode: 'Markdown', ...step3UI.markup }).catch(() => {});
+
+        // Step 4: Update Telegram Message to 100% READY Standby State with START RECORDING button & RDP Link
+        const readyUI = ui.generatePlayerUI({ status: 'READY', progress: 100, meetingUrl: meetingUrl, vncUrl: tunnel.url });
+        await bot.telegram.editMessageText(chatId, msgId, undefined, readyUI.text, {
             parse_mode: 'Markdown', ...readyUI.markup
         }).catch((err) => console.error("Initial Ready UI edit error:", err.message));
 

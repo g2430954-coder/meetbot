@@ -151,8 +151,8 @@ bot.command('join', async (ctx) => {
     sessionState.currentChatId = ctx.chat.id;
     sessionState.isJoined = true;
 
-    // Send INITIALIZING UI
-    const player = ui.generatePlayerUI({ status: 'INITIALIZING', meetingUrl });
+    // Send INITIALIZING UI with 10% progress
+    const player = ui.generatePlayerUI({ status: 'INITIALIZING', progress: 10, meetingUrl });
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     sessionState.playerMessageId = msg.message_id;
 
@@ -161,8 +161,8 @@ bot.command('join', async (ctx) => {
         await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
         sessionState.isRecording = false; // Standby state until user clicks START RECORDING
 
-        // Update UI to DEPLOYING
-        const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', meetingUrl });
+        // Update UI to DEPLOYING with 25% progress
+        const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 25, meetingUrl });
         await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, dispatchedUI.text, {
             parse_mode: 'Markdown',
             ...dispatchedUI.markup

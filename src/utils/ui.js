@@ -39,7 +39,8 @@ function generatePlayerUI(params) {
     }
 
     if (progress !== undefined) {
-        uiText += `📊 Processing: ${getProgressBar(progress)}\n`;
+        const label = (status === 'INITIALIZING' || status === 'DEPLOYING') ? '🚀 Deployment Progress' : '📊 Processing Progress';
+        uiText += `${label}: ${getProgressBar(progress)}\n`;
     }
 
     if (partCount) {
@@ -49,15 +50,21 @@ function generatePlayerUI(params) {
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     if (status === 'INITIALIZING') {
-        uiText += `⏳ Initializing virtual frame buffer & audio bridge...`;
+        uiText += `⏳ Step 1/4: Initializing virtual frame buffer & audio bridge...`;
     } else if (status === 'DEPLOYING') {
-        uiText += `🚀 Cloud Runner deployed. Launching browser & live feed...`;
+        if (progress !== undefined && progress < 40) {
+            uiText += `🖥 Step 2/4: Mounting 1080p Virtual Display :99 & PulseAudio...`;
+        } else if (progress !== undefined && progress < 75) {
+            uiText += `📡 Step 3/4: Establishing Serveo Live Visual RDP Bridge...`;
+        } else {
+            uiText += `🌐 Step 4/4: Launching Stealth Chrome & Connecting Room...`;
+        }
     } else if (status === 'READY') {
-        uiText += `✨ System Standby. Tap button below or send /record to start.`;
+        uiText += `✨ System Standby (100% Ready). Tap button below or send /record to start.`;
     } else if (status === 'RECORDING') {
         uiText += `🔴 Capturing 1080p HD Feed + Audio (Stereo)...`;
     } else if (status === 'FINALIZING') {
-        uiText += `⚙️ Splitting video segments & generating English AI transcript...`;
+        uiText += `⚙️ Finalizing capture, splitting MP4 parts & generating English transcript...`;
     } else if (status === 'COMPLETED') {
         uiText += `✅ All video parts and transcript secured in group storage.`;
     }
