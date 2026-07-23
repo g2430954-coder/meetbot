@@ -1,0 +1,112 @@
+name: GHOST meet Heavy Runner
+
+on:
+  repository_dispatch:
+    types: [start_ghost_runner]
+
+# Full permissions for all security and cleanup tasks
+permissions:
+  actions: write
+  contents: write
+  id-token: write
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: write
+      id-token: write
+    timeout-minutes: 360
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: '' # Explicitly disable caching to prevent "lock file not found" error
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Critical Tools (Fast Mode)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            xvfb ffmpeg pulseaudio dbus-x11 google-chrome-stable x11vnc novnc
+
+      - name: Fast Node Install
+        run: npm install --no-audit --no-fund --quiet --no-package-lock
+
+      - name: Fast Python Install
+        run: |
+          pip install SpeechRecognition indic-transliteration --break-system-packages --quiet
+
+      - name: Initialize Display & Audio & Visual Bridge
+        env:
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+        run: |
+          Xvfb :99 -screen 0 1920x1080x24 &
+          sleep 3
+          
+          # Setup Virtual Audio
+          pulseaudio -D --exit-idle-time=-1 --disallow-exit
+          sleep 2
+          pactl load-module module-virtual-sink sink_name=v_sink
+          pactl set-default-sink v_sink
+          
+          # ? FORCE MAX VOLUME (Fixes silent videos and missing STT)
+          pactl set-sink-mute v_sink 0
+          pactl set-sink-volume v_sink 100%
+          pactl set-source-mute v_sink.monitor 0
+          pactl set-source-volume v_sink.monitor 100%
+          
+          # VNC Server with auto-scaling
+          x11vnc -display :99 -forever -shared -passwd "$VNC_PASSWORD" -bg -quiet
+          /usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &
+
+      - name: Setup SSH for Serveo
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan serveo.net >> ~/.ssh/known_hosts
+
+      - name: Launch GHOST Runner
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          ALLOWED_GROUP_ID: ${{ secrets.ALLOWED_GROUP_ID }}
+          NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_AUTHTOKEN }}
+          MEETING_URL: ${{ github.event.client_payload.meeting_url }}
+          PLAYER_MESSAGE_ID: ${{ github.event.client_payload.player_message_id }}
+          CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+          DISPLAY: :99
+          CHROME_PATH: /usr/bin/google-chrome-stable
+        run: node scripts/github_runner.js
+
+      - name: Wipe History & Self-Destruct
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "? Wiping previous history and current trace..."
+          # Authorize GH CLI
+          echo "${{ secrets.GITHUB_TOKEN }}" | gh auth login --with-token
+          
+          # Delete the CURRENT run first (this might terminate the job, which is fine)
+          echo "Deleting current run: ${{ github.run_id }}..."
+          gh run delete ${{ github.run_id }} || true
+          
+          # Delete ALL other runs for this workflow to leave no trace
+          WORKFLOW="meet.yml"
+          echo "Purging all workflow runs for $WORKFLOW..."
+          gh run list --workflow "$WORKFLOW" --limit 1000 --json databaseId -q '.[].databaseId' | xargs -I{} gh run delete {} || true
+          
+          # Force delete by name as fallback
+          NAME="GHOST meet Heavy Runner"
+          gh run list --workflow "$NAME" --limit 100 --json databaseId -q '.[].databaseId' | xargs -I{} gh run delete {} || true

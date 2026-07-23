@@ -1,0 +1,26 @@
+{
+  "name": "ghost-meet",
+  "version": "1.0.0",
+  "description": "Premium automated meeting capture suite",
+  "main": "src/bot/telegram.js",
+  "scripts": {
+    "start": "node src/bot/telegram.js",
+    "dev": "nodemon src/bot/telegram.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.12.2",
+    "puppeteer-core": "^20.7.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "fluent-ffmpeg": "^2.1.2",
+    "axios": "^1.4.0",
+    "fs-extra": "^11.1.1",
+    "form-data": "^4.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.22"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
