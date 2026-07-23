@@ -16,7 +16,7 @@ const STATUS_ICONS = {
 };
 
 function generatePlayerUI(params) {
-    const { status, timer, meetingUrl, vncUrl, partCount, progress, stepLog } = params;
+    const { status, timer, meetingUrl, vncUrl, partCount, progress, stepLog, latestTranscript } = params;
     const icon = STATUS_ICONS[status] || '🛸';
 
     let uiText = `${icon} *GHOST meet | LIVE PLAYER*\n`;
@@ -44,7 +44,11 @@ function generatePlayerUI(params) {
     }
 
     if (partCount) {
-        uiText += `🎥 Captured Segments: *${partCount} parts*\n`;
+        uiText += `🎥 Captured Segments: *${partCount} parts uploaded*\n`;
+    }
+
+    if (latestTranscript) {
+        uiText += `\n📜 *Live Transcription snippet:*\n_"${latestTranscript}"_\n`;
     }
 
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -89,7 +93,7 @@ function generatePlayerUI(params) {
 }
 
 function getProgressBar(percent) {
-    const total = 10;
+    const total = 20; // 20 blocks for higher resolution (5% per block)
     const progress = Math.round((percent / 100) * total);
     const remaining = total - progress;
     return `[${"█".repeat(progress)}${"░".repeat(remaining)}] ${percent}%`;
