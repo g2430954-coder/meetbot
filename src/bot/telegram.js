@@ -25,6 +25,9 @@ const sessionState = {
     timerInterval: null
 };
 
+// Update Deduplication Cache to prevent double processing of link preview updates
+const processedUpdates = new Map();
+
 /**
  * Helper to extract meeting URL from text (supports both /join <url> and raw HTTP/HTTPS meeting links)
  */
@@ -46,10 +49,27 @@ function extractMeetingUrl(text) {
 }
 
 /**
- * STRICT GROUP AUTHORIZATION & AUTO-LINK DETECTION MIDDLEWARE
+ * STRICT GROUP AUTHORIZATION & AUTO-LINK DEDUPLICATION MIDDLEWARE
  */
 bot.use(async (ctx, next) => {
     if (!ctx.chat) return;
+
+    // Deduplicate Telegram message updates (link previews / re-sent updates)
+    if (ctx.message && ctx.message.message_id) {
+        const msgId = ctx.message.message_id;
+        if (processedUpdates.has(msgId)) {
+            return; // Silent ignore duplicate update from Telegram
+        }
+        processedUpdates.set(msgId, Date.now());
+
+        // Cache cleanup
+        if (processedUpdates.size > 200) {
+            const now = Date.now();
+            for (const [id, time] of processedUpdates.entries()) {
+                if (now - time > 60000) processedUpdates.delete(id);
+            }
+        }
+    }
 
     const chatId = ctx.chat.id.toString();
 
@@ -110,12 +130,12 @@ bot.start((ctx) => {
 });
 
 /**
- * /join <url> - Deploy visual engine (FIXED: Auto-triggers GitHub Dispatch if PAT_TOKEN or RENDER set)
+ * /join <url> - Deploy visual engine (FIXED: Auto-triggers GitHub Dispatch with silent deduplication)
  */
 bot.command('join', async (ctx) => {
     // PREVENT DOUBLE EXECUTION
     if (sessionState.isJoined) {
-        return ctx.replyWithMarkdown("⚠️ *Already Joined*\n━━━━━━━━━━━━━━━━━━━━━━\nMeeting is already active. Use `/stop` to end the session first.");
+        return; // Silent return on duplicate join requests
     }
 
     const meetingUrl = extractMeetingUrl(ctx.message.text);
