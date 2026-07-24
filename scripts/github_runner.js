@@ -399,11 +399,11 @@ async function run() {
 </style>
 
 <div id="ghost-mobile-control-bar">
-  <button class="ghost-mob-btn-icon" id="ghost-toggle-bar" title="Toggle Controls">⚙️</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍+</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍-</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-fit">📐 Fit</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️ Keybd</button>
+  <button class="ghost-mob-btn-icon" id="ghost-toggle-bar" title="Toggle Controls">⚙️ Controls</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍 Zoom In (+)</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍 Zoom Out (-)</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-fit">🔄 Normal (Reset)</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️ Phone Keybd</button>
 </div>
 <input type="text" id="ghost-hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off">
 
@@ -429,8 +429,8 @@ async function run() {
     }
   }
 
-  if (zoomInBtn) zoomInBtn.addEventListener('click', () => applyScale(currentScale + 0.25));
-  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyScale(currentScale - 0.25));
+  if (zoomInBtn) zoomInBtn.addEventListener('click', () => applyScale(currentScale + 0.3));
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyScale(currentScale - 0.3));
   if (zoomFitBtn) zoomFitBtn.addEventListener('click', () => applyScale(0.8));
 
   if (kbdBtn && hiddenInput) {
