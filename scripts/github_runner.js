@@ -31,6 +31,10 @@ const outputDir = path.join(__dirname, '../output');
 const chunksDir = path.join(outputDir, 'chunks');
 const masterTranscriptPath = path.join(outputDir, 'GHOST_meet_Full_Transcript.txt');
 
+// Ensure directories exist immediately
+fs.ensureDirSync(outputDir);
+fs.ensureDirSync(chunksDir);
+
 // UI State Management
 let targetProgress = 10;
 let visualProgress = 1;
@@ -212,6 +216,8 @@ const backgroundTaskInterval = setInterval(async () => {
 async function triggerStartRecording() {
     if (!isRecording) {
         console.log("🔴 Starting HD Stream Recording...");
+        await fs.ensureDir(outputDir);
+        await fs.ensureDir(chunksDir);
         fs.writeFileSync(masterTranscriptPath, "✨ GHOST meet | FULL AI TRANSCRIPT\n━━━━━━━━━━━━━━━━━━━━━━\n\n");
         await recorder.startRecording();
         recordingStartTime = Date.now();
