@@ -118,7 +118,8 @@ async function checkRecordSignal() {
             for (const ev of res.data) {
                 if (ev.type === 'RepositoryDispatchEvent' && ev.payload && ev.payload.action === 'record_ghost_runner') {
                     const eventTime = new Date(ev.created_at).getTime();
-                    if (eventTime >= runnerStartTime - 5000) return true;
+                    // Increased window to 10s to ensure signal is caught
+                    if (eventTime >= runnerStartTime - 10000) return true;
                 }
             }
         }
@@ -207,7 +208,7 @@ async function triggerStartRecording() {
         recordingStartTime = Date.now();
         isRecording = true;
         progressStatus = 'RECORDING';
-        systemLogs.push("Recording engine engaged.");
+        systemLogs.push("Signal received: Recording started.");
         if (systemLogs.length > 3) systemLogs.shift();
     }
 }
@@ -300,7 +301,24 @@ async function run() {
 
 run();
 
-process.on('unhandledRejection', (reason) => {
-    console.error('Unhandled Rejection:', reason);
+async function reportError(err) {
+    console.error("GHOST Runner Error:", err);
+    const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
+    try {
+        await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined,
+            errorUI.text + `\n\n🚨 *System Failure:* ${err.message || err}`,
+            { parse_mode: 'Markdown' }
+        );
+        await bot.telegram.sendMessage(chatId, `❌ *Runner Process Terminated:* ${err.message || err}`, { parse_mode: 'Markdown' });
+    } catch (e) {}
+}
+
+process.on('uncaughtException', async (err) => {
+    await reportError(err);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason) => {
+    await reportError(reason);
     process.exit(1);
 });

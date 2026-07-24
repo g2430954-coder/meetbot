@@ -181,6 +181,7 @@ async function handleRecord(ctx) {
     } catch (error) {
         sessionState.isRecording = false;
         logger.error("GitHub Record Trigger Failure:", error);
+        await ctx.replyWithMarkdown(`🚨 *Dispatch Failed:* ${error.message}\nCheck your PAT_TOKEN or GitHub status.`);
     }
 }
 
@@ -209,6 +210,7 @@ async function handleStop(ctx) {
         await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
     } catch (error) {
         logger.error("GitHub Stop Trigger Failure:", error);
+        await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Failed:* ${error.message}`);
     } finally {
         // Reduced reset delay for "Zero-Wait" feel
         setTimeout(() => {
@@ -249,13 +251,17 @@ function startWorkflowMonitor(ctx) {
         }
         const isRunning = await github.isWorkflowRunning();
         if (!isRunning && sessionState.isJoined) {
-            sessionState.isJoined = false;
-            sessionState.isRecording = false;
-            const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
-            await throttledEdit(ctx, errorUI.text + "\n\n🚨 *System Error:* Cloud runner stopped unexpectedly.", { parse_mode: 'Markdown' });
-            clearInterval(sessionState.monitorInterval);
+            // Runner might have finished naturally or crashed
+            if (!sessionState.isRecording) {
+                 // If not recording, it's likely a join failure or idle timeout
+                 logger.warn("Workflow monitor detected runner is no longer active.");
+                 sessionState.isJoined = false;
+                 const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
+                 await throttledEdit(ctx, errorUI.text + "\n\n🚨 *Connection Lost:* The cloud runner went offline unexpectedly.", { parse_mode: 'Markdown' });
+                 clearInterval(sessionState.monitorInterval);
+            }
         }
-    }, 20000);
+    }, 30000); // 30s interval is fine for status checks
 }
 
 // Inline Actions
