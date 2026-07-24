@@ -212,11 +212,11 @@ async function handleStop(ctx) {
         logger.error("GitHub Stop Trigger Failure:", error);
         await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Failed:* ${error.message}`);
     } finally {
-        // Reduced reset delay for "Zero-Wait" feel
-        setTimeout(() => {
+        setTimeout(async () => {
             sessionState.isJoined = false;
             sessionState.isRecording = false;
-        }, 5000);
+            await github.cancelAndDeleteRunningWorkflows().catch(() => {});
+        }, 15000);
     }
 }
 
@@ -229,7 +229,8 @@ bot.action('cmd_stop', async (ctx) => {
 bot.action('cmd_new_session', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) {}
     resetSession();
-    return ctx.replyWithMarkdown("🔄 *Terminal Reset Complete.*\nReady for a new meeting link.");
+    await github.cancelAndDeleteRunningWorkflows().catch(() => {});
+    return ctx.replyWithMarkdown("🔄 *Terminal Reset Complete.*\nActive workflows cleared.");
 });
 
 bot.command('status', (ctx) => {

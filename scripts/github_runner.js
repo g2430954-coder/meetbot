@@ -300,17 +300,13 @@ async function run() {
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'READY';
-        systemLogs.push("Ready for capture.");
+        systemLogs.push("Visual engine online. Click START CAPTURE to record.");
         if (systemLogs.length > 3) systemLogs.shift();
 
         const app = express();
         app.get('/record', async (req, res) => { res.json({ status: 'recording' }); triggerStartRecording(); });
         app.get('/stop', async (req, res) => { res.json({ status: 'finalizing' }); finalizeAndUpload(vncUrlGlobal); });
         app.listen(8088);
-
-        // ⚡ AUTOMATIC ZERO-CLICK RECORDING START
-        console.log("⚡ Auto-starting HD capture (Zero-Click Automation)...");
-        await triggerStartRecording();
 
     } catch (error) {
         console.error("Runner Execution Error:", error);

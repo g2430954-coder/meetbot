@@ -2,6 +2,53 @@ const axios = require('axios');
 const logger = require('./logger');
 
 /**
+ * Automatically cancels and deletes active/queued workflow runs on GitHub
+ */
+async function cancelAndDeleteRunningWorkflows() {
+    const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+
+    if (!PAT_TOKEN) return;
+
+    try {
+        const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs`;
+        const res = await axios.get(url, {
+            headers: {
+                'Authorization': `token ${PAT_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json'
+            },
+            params: { per_page: 30 }
+        });
+
+        if (res.data && Array.isArray(res.data.workflow_runs)) {
+            for (const run of res.data.workflow_runs) {
+                const isRunning = run.status === 'in_progress' || run.status === 'queued' || run.status === 'waiting';
+                if (isRunning) {
+                    logger.info(`Cancelling running workflow #${run.id}...`);
+                    await axios.post(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}/cancel`, {}, {
+                        headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+                    }).catch(() => {});
+
+                    // Give API a moment before delete
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+
+                // Delete completed/cancelled workflow run logs if requested
+                if (run.status === 'completed' || run.status === 'cancelled' || isRunning) {
+                    logger.info(`Deleting workflow run log #${run.id}...`);
+                    await axios.delete(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}`, {
+                        headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+                    }).catch(() => {});
+                }
+            }
+        }
+    } catch (e) {
+        logger.error("Error cancelling/deleting workflows:", e.message);
+    }
+}
+
+/**
  * Checks if a GHOST runner is already active in GitHub Actions
  */
 async function isWorkflowRunning() {
@@ -38,11 +85,9 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId) {
         throw new Error("Missing PAT_TOKEN in Render environment variables. Please add PAT_TOKEN to Render.");
     }
 
-    // Check if one is already running
-    const running = await isWorkflowRunning();
-    if (running) {
-        throw new Error("A GitHub Action runner is already active. Please wait or stop it first.");
-    }
+    // Auto-cancel and delete any previous or stuck workflows before launching
+    logger.info("Cleaning up previous workflow runs on GitHub...");
+    await cancelAndDeleteRunningWorkflows();
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
 
@@ -143,5 +188,5 @@ async function triggerStopRunner(chatId, playerMessageId) {
     }
 }
 
-module.exports = { triggerRunner, triggerRecordRunner, triggerStopRunner, isWorkflowRunning };
+module.exports = { triggerRunner, triggerRecordRunner, triggerStopRunner, isWorkflowRunning, cancelAndDeleteRunningWorkflows };
 
