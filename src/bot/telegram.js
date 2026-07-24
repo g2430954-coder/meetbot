@@ -18,11 +18,32 @@ const sessionState = {
     currentUrl: null,
     currentChatId: null,
     playerMessageId: null,
-    monitorInterval: null
+    monitorInterval: null,
+    lastActionTime: 0
 };
 
 // Deduplication Cache
 const processedUpdates = new Map();
+
+/**
+ * Throttled Edit Guard to prevent 429 errors
+ */
+async function throttledEdit(ctx, text, markup) {
+    const now = Date.now();
+    if (now - sessionState.lastActionTime < 2500) {
+        await new Promise(r => setTimeout(r, 2500 - (now - sessionState.lastActionTime)));
+    }
+    sessionState.lastActionTime = Date.now();
+
+    if (sessionState.playerMessageId) {
+        return ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
+            parse_mode: 'Markdown', ...markup
+        }).catch(e => {
+            if (e.description && e.description.includes("message is not modified")) return;
+            logger.error("Throttled Edit Error:", e.message);
+        });
+    }
+}
 
 /**
  * Helper to extract meeting URL from text
@@ -115,14 +136,12 @@ bot.command('join', async (ctx) => {
     try {
         await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
         const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 3, meetingUrl });
-        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, dispatchedUI.text, {
-            parse_mode: 'Markdown', ...dispatchedUI.markup
-        }).catch(() => {});
+        await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup);
         startWorkflowMonitor(ctx);
     } catch (error) {
         sessionState.isJoined = false;
         const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
-        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, errorUI.text + `\n\n🚨 *Failure:* ${error.message}`, { parse_mode: 'Markdown' }).catch(() => {});
+        await throttledEdit(ctx, errorUI.text + `\n\n🚨 *Failure:* ${error.message}`, { parse_mode: 'Markdown' });
     }
 });
 
@@ -135,7 +154,6 @@ async function handleRecord(ctx) {
 
     sessionState.isRecording = true;
 
-    // Update the same message to show STARTING
     const startingUI = ui.generatePlayerUI({
         status: 'RECORDING',
         meetingUrl: sessionState.currentUrl,
@@ -143,11 +161,7 @@ async function handleRecord(ctx) {
         logs: ["Recording signal sent...", "Engaging engine..."]
     });
 
-    if (sessionState.playerMessageId) {
-        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, startingUI.text, {
-            parse_mode: 'Markdown', ...startingUI.markup
-        }).catch((e) => logger.error("Edit error in handleRecord:", e.message));
-    }
+    await throttledEdit(ctx, startingUI.text, startingUI.markup);
 
     try {
         await github.triggerRecordRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
@@ -171,7 +185,6 @@ async function handleStop(ctx) {
 
     sessionState.isRecording = false;
 
-    // Update the same message to show FINALIZING
     const stoppingUI = ui.generatePlayerUI({
         status: 'FINALIZING',
         meetingUrl: sessionState.currentUrl,
@@ -179,18 +192,13 @@ async function handleStop(ctx) {
         logs: ["Stop signal sent.", "Finalizing assets..."]
     });
 
-    if (sessionState.playerMessageId) {
-        await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, stoppingUI.text, {
-            parse_mode: 'Markdown', ...stoppingUI.markup
-        }).catch((e) => logger.error("Edit error in handleStop:", e.message));
-    }
+    await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup);
 
     try {
         await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
     } catch (error) {
         logger.error("GitHub Stop Trigger Failure:", error);
     } finally {
-        // Reset state after a long buffer
         setTimeout(() => {
             sessionState.isJoined = false;
             sessionState.isRecording = false;
@@ -228,13 +236,8 @@ function startWorkflowMonitor(ctx) {
         if (!isRunning && sessionState.isJoined) {
             sessionState.isJoined = false;
             sessionState.isRecording = false;
-            if (sessionState.playerMessageId) {
-                const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
-                await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined,
-                    errorUI.text + "\n\n🚨 *System Error:* Cloud runner stopped unexpectedly.",
-                    { parse_mode: 'Markdown' }
-                ).catch(() => {});
-            }
+            const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
+            await throttledEdit(ctx, errorUI.text + "\n\n🚨 *System Error:* Cloud runner stopped unexpectedly.", { parse_mode: 'Markdown' });
             clearInterval(sessionState.monitorInterval);
         }
     }, 20000);

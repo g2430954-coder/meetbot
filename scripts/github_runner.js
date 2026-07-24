@@ -38,21 +38,35 @@ let progressStatus = 'INITIALIZING';
 let vncUrlGlobal = null;
 let systemLogs = ["Kernel mounting display...", "Initializing visual bridge..."];
 
+// Throttling for Telegram
+let lastUIUpdate = 0;
+const UI_UPDATE_INTERVAL = 2500; // 2.5s is safest to avoid 429
+
 // Use built-in chrome on GitHub
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
 /**
- * MASTER UI ORCHESTRATOR
+ * SMOOTH TICKER (100ms)
+ * Increments visual progress smoothly in background
+ */
+setInterval(() => {
+    if (visualProgress < targetProgress) {
+        visualProgress += 0.2; // Very slow incremental creep
+    } else if (visualProgress < 99 && (progressStatus === 'DEPLOYING' || progressStatus === 'FINALIZING')) {
+        visualProgress += 0.05; // Ghost creep to show life
+    }
+}, 100);
+
+/**
+ * MASTER UI PUSHER (Throttled)
  */
 const masterUIInterval = setInterval(async () => {
-    if (visualProgress < targetProgress) {
-        visualProgress += Math.max(1, Math.floor((targetProgress - visualProgress) / 4));
-    } else if (visualProgress < 99 && (progressStatus === 'DEPLOYING' || progressStatus === 'FINALIZING')) {
-        visualProgress += 1;
-    }
+    const now = Date.now();
+    if (now - lastUIUpdate < UI_UPDATE_INTERVAL) return;
+    lastUIUpdate = now;
 
     if (progressStatus === 'DEPLOYING') {
-        const newLog = getWorkflowStepLog(visualProgress);
+        const newLog = getWorkflowStepLog(Math.floor(visualProgress));
         if (newLog && !systemLogs.includes(newLog)) {
             systemLogs.push(newLog);
             if (systemLogs.length > 3) systemLogs.shift();
@@ -61,7 +75,7 @@ const masterUIInterval = setInterval(async () => {
 
     const currentUI = ui.generatePlayerUI({
         status: isRecording ? 'RECORDING' : progressStatus,
-        progress: Math.min(100, visualProgress),
+        progress: Math.floor(Math.min(100, visualProgress)),
         meetingUrl: meetingUrl,
         vncUrl: vncUrlGlobal,
         partCount: processedSegments.size,
@@ -74,8 +88,11 @@ const masterUIInterval = setInterval(async () => {
         await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, currentUI.text, {
             parse_mode: 'Markdown', ...currentUI.markup
         });
-    } catch (e) {}
-}, 2000);
+    } catch (e) {
+        if (e.description && e.description.includes("message is not modified")) return;
+        console.warn("UI Push throttled by Telegram (429 or network).");
+    }
+}, 500); // Check every 500ms, but only push if 2.5s passed
 
 function getTimerString() {
     if (!recordingStartTime || !isRecording) return null;
