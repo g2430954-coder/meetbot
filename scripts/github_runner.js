@@ -157,7 +157,9 @@ async function processLatestSegments() {
                 if (transcriptPath && fs.existsSync(transcriptPath)) {
                     const text = fs.readFileSync(transcriptPath, 'utf8');
                     const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
-                    fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+                    if (cleanText) {
+                        fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+                    }
 
                     const lines = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:'));
                     if (lines.length > 0) {
@@ -165,10 +167,6 @@ async function processLatestSegments() {
                     }
                 }
             }
-
-            await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
-                caption: `🎥 GHOST meet Recording | Part ${processedSegments.size}\n📜 Text: ${latestTranscript.substring(0, 500)}`
-            }).catch(e => console.error(`Part upload error: ${e.message}`));
         }
     }
 }
