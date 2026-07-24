@@ -72,7 +72,7 @@ jobs:
           
           # VNC Server with auto-scaling
           x11vnc -display :99 -forever -shared -passwd "$VNC_PASSWORD" -bg -quiet
-          /usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6080 &
+          /usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6081 &
 
       - name: Setup SSH for Serveo
         run: |

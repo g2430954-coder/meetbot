@@ -272,10 +272,69 @@ async function run() {
         systemLogs.push("Visual engine online. Click START CAPTURE to record.");
         if (systemLogs.length > 3) systemLogs.shift();
 
-        const app = express();
-        app.get('/record', async (req, res) => { res.json({ status: 'recording' }); triggerStartRecording(); });
-        app.get('/stop', async (req, res) => { res.json({ status: 'finalizing' }); finalizeAndUpload(vncUrlGlobal); });
-        app.listen(8088);
+        const http = require('http');
+        const expressApp = express();
+
+        expressApp.get('/record', async (req, res) => {
+            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: START RECORDING!");
+            await triggerStartRecording();
+            res.json({ status: 'recording', success: true });
+        });
+
+        expressApp.get('/stop', async (req, res) => {
+            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: STOP RECORDING!");
+            res.json({ status: 'finalizing', success: true });
+            await finalizeAndUpload(vncUrlGlobal);
+        });
+
+        expressApp.get('/status', (req, res) => {
+            res.json({ isRecording, progressStatus });
+        });
+
+        // Proxy all other HTTP traffic to NoVNC on 6081
+        expressApp.use((req, res) => {
+            const proxyReq = http.request({
+                host: '127.0.0.1',
+                port: 6081,
+                path: req.url,
+                method: req.method,
+                headers: req.headers
+            }, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                proxyRes.pipe(res, { end: true });
+            });
+
+            proxyReq.on('error', () => {
+                if (!res.headersSent) res.status(502).send("Visual Bridge Initializing...");
+            });
+
+            req.pipe(proxyReq, { end: true });
+        });
+
+        const controlServer = expressApp.listen(6080, () => {
+            console.log("🚀 Express Control Bridge listening on port 6080");
+        });
+
+        // Proxy WebSockets for NoVNC
+        controlServer.on('upgrade', (req, socket, head) => {
+            const proxyReq = http.request({
+                host: '127.0.0.1',
+                port: 6081,
+                path: req.url,
+                method: req.method,
+                headers: req.headers
+            });
+
+            proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+                socket.write(`HTTP/1.1 101 Switching Protocols\r\n` +
+                    Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') + '\r\n\r\n');
+                proxySocket.pipe(socket);
+                socket.pipe(proxySocket);
+            });
+
+            proxyReq.on('error', () => socket.destroy());
+            proxyReq.end();
+        });
 
     } catch (error) {
         console.error("Runner Execution Error:", error);

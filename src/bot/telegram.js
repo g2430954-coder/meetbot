@@ -176,12 +176,19 @@ async function handleRecord(ctx) {
 
     await throttledEdit(ctx, startingUI.text, startingUI.markup);
 
+    // Direct HTTP signal via Serveo tunnel for 0ms delay
+    if (sessionState.vncUrl) {
+        try {
+            const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
+            const axios = require('axios');
+            axios.get(`${baseUrl}/record`, { timeout: 5000 }).catch(() => {});
+        } catch (e) {}
+    }
+
     try {
         await github.triggerRecordRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
     } catch (error) {
-        sessionState.isRecording = false;
-        logger.error("GitHub Record Trigger Failure:", error);
-        await ctx.replyWithMarkdown(`🚨 *Dispatch Failed:* ${error.message}\nCheck your PAT_TOKEN or GitHub status.`);
+        logger.error("GitHub Record Trigger Notice:", error.message);
     }
 }
 
@@ -206,11 +213,19 @@ async function handleStop(ctx) {
 
     await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup);
 
+    // Direct HTTP signal via Serveo tunnel
+    if (sessionState.vncUrl) {
+        try {
+            const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
+            const axios = require('axios');
+            axios.get(`${baseUrl}/stop`, { timeout: 5000 }).catch(() => {});
+        } catch (e) {}
+    }
+
     try {
         await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
     } catch (error) {
-        logger.error("GitHub Stop Trigger Failure:", error);
-        await ctx.replyWithMarkdown(`🚨 *Stop Dispatch Failed:* ${error.message}`);
+        logger.error("GitHub Stop Trigger Notice:", error.message);
     } finally {
         setTimeout(async () => {
             sessionState.isJoined = false;
