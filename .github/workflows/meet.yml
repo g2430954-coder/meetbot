@@ -47,9 +47,11 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-v2
 
-      - name: Install System Tools (Ultra-Fast)
+      - name: Install System Dependencies
         run: |
-          sudo apt-get install -y -qq --no-install-recommends x11vnc novnc
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            xvfb pulseaudio dbus-x11 x11vnc novnc ffmpeg
 
       - name: Fast Node Install
         run: npm install --no-audit --no-fund --quiet --prefer-offline
