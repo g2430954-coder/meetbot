@@ -18,6 +18,7 @@ const sessionState = {
     currentUrl: null,
     currentChatId: null,
     playerMessageId: null,
+    vncUrl: null,
     monitorInterval: null,
     lastActionTime: 0
 };
@@ -307,6 +308,14 @@ const app = express();
 app.get('/', (req, res) => res.status(200).send('GHOST meet Engine Active'));
 app.get('/ping', (req, res) => res.status(200).json({ status: 'active', message: 'PONG', timestamp: new Date().toISOString() }));
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime(), session: sessionState.isJoined ? 'CONNECTED' : 'IDLE' }));
+app.get('/register_vnc', (req, res) => {
+    const { vncUrl } = req.query;
+    if (vncUrl) {
+        sessionState.vncUrl = vncUrl;
+        logger.info(`✅ Registered active runner VNC URL: ${vncUrl}`);
+    }
+    res.json({ status: 'ok', vncUrl: sessionState.vncUrl });
+});
 app.listen(process.env.PORT || 10000, () => {
     logger.info(`Web server listening on port ${process.env.PORT || 10000} for keep-alive pings.`);
 });

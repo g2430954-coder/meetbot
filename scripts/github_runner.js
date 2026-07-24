@@ -272,6 +272,12 @@ async function run() {
         const tunnel = await browserManager.launchMeeting(meetingUrl);
         vncUrlGlobal = tunnel.url;
 
+        // Register active VNC tunnel URL with Telegram bot on Render
+        const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
+        axios.get(`${botHost}/register_vnc?vncUrl=${encodeURIComponent(vncUrlGlobal)}`).then(() => {
+            console.log(`✅ Successfully registered VNC URL with bot server.`);
+        }).catch(e => console.warn(`VNC URL registration notice: ${e.message}`));
+
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'READY';
