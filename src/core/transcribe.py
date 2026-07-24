@@ -12,7 +12,7 @@ try:
 except ImportError:
     HAS_TRANSLIT = False
 
-CHUNK_DURATION = 30  # 30s chunks for maximum speech capture & fine timestamps
+CHUNK_DURATION = 12  # 12s speech frames for high-density speech recognition
 
 def get_audio_duration(audio_file):
     with contextlib.closing(wave.open(audio_file, 'r')) as f:
@@ -23,22 +23,25 @@ def get_audio_duration(audio_file):
 
 def convert_to_hinglish(text):
     """Convert Devanagari text to Hinglish (Romanized)"""
+    if not text or not text.strip():
+        return ""
     if not HAS_TRANSLIT:
         return text
     try:
-        # Transliteration can be picky, ensure it's not empty
-        if not text.strip():
-            return ""
-        return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS).lower()
+        # Check if text contains Devanagari characters
+        has_devanagari = any('\u0900' <= char <= '\u097f' for char in text)
+        if has_devanagari:
+            return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS).lower()
+        return text
     except Exception as e:
         print(f"Transliteration Error: {e}")
         return text
 
 def run_transcription(audio_file, output_file):
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 250  # High audio sensitivity to catch quiet speakers
-    recognizer.dynamic_energy_threshold = True
-    recognizer.pause_threshold = 0.5  # Sensitive pause boundary to prevent speech truncating
+    recognizer.energy_threshold = 50  # Ultra-sensitive low threshold for online class audio
+    recognizer.dynamic_energy_threshold = False  # Fixed threshold for pre-recorded WAV files
+    recognizer.pause_threshold = 0.8  # Prevent speech clipping
 
     if not os.path.exists(audio_file):
         print(f"ERROR: Audio file {audio_file} not found.")
@@ -65,7 +68,6 @@ def run_transcription(audio_file, output_file):
             
             while True:
                 try:
-                    # If we have duration, stop when offset exceeds it
                     if duration and offset >= duration:
                         break
 
@@ -75,34 +77,48 @@ def run_transcription(audio_file, output_file):
                     if not audio_chunk or not audio_chunk.frame_data:
                         break
                         
-                    # 3-Tier Speech Cascade: en-IN -> en-US -> hi-IN (transliterated)
+                    # 4-Tier Speech Cascade: hi-IN -> en-IN -> en-US -> hi
                     chunk_text = None
                     for attempt in range(2):
+                        # 1. Hindi (India) -> Hinglish
                         try:
-                            # 1. Primary: English (India)
+                            raw_text = recognizer.recognize_google(audio_chunk, language='hi-IN')
+                            chunk_text = convert_to_hinglish(raw_text)
+                            break
+                        except sr.UnknownValueError:
+                            pass
+                        except sr.RequestError:
+                            pass
+
+                        # 2. English (India)
+                        try:
                             chunk_text = recognizer.recognize_google(audio_chunk, language='en-IN')
                             break
                         except sr.UnknownValueError:
-                            try:
-                                # 2. Secondary: English (US)
-                                chunk_text = recognizer.recognize_google(audio_chunk, language='en-US')
-                                break
-                            except sr.UnknownValueError:
-                                try:
-                                    # 3. Tertiary: Hindi with Roman Transliteration
-                                    raw_hi_text = recognizer.recognize_google(audio_chunk, language='hi-IN')
-                                    chunk_text = convert_to_hinglish(raw_hi_text)
-                                    break
-                                except sr.UnknownValueError:
-                                    break
-                        except sr.RequestError as e:
-                            print(f"GHOST meet STT: API retry {attempt+1} at {offset}s due to: {e}")
-                            import time
-                            time.sleep(1)
+                            pass
+                        except sr.RequestError:
+                            pass
 
-                    if chunk_text:
+                        # 3. English (US)
+                        try:
+                            chunk_text = recognizer.recognize_google(audio_chunk, language='en-US')
+                            break
+                        except sr.UnknownValueError:
+                            pass
+                        except sr.RequestError:
+                            pass
+
+                        # 4. General Hindi
+                        try:
+                            raw_text = recognizer.recognize_google(audio_chunk, language='hi')
+                            chunk_text = convert_to_hinglish(raw_text)
+                            break
+                        except (sr.UnknownValueError, sr.RequestError):
+                            break
+
+                    if chunk_text and chunk_text.strip():
                         all_text_found = True
-                        formatted_chunk = convert_to_hinglish(chunk_text)
+                        formatted_chunk = convert_to_hinglish(chunk_text.strip())
 
                         with open(output_file, 'a', encoding='utf-8') as f:
                             f.write(f"[{int(offset/60)}:{int(offset%60):02d}] {formatted_chunk}\n")

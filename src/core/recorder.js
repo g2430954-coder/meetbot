@@ -59,7 +59,7 @@ async function startRecording() {
  */
 async function extractAudio(videoPath, audioPath) {
     try {
-        execSync(`ffmpeg -i "${videoPath}" -vn -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}"`);
+        execSync(`ffmpeg -i "${videoPath}" -vn -filter:a "volume=3.0" -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}"`);
         return true;
     } catch (e) {
         logger.error(`Audio Extraction Error: ${e.message}`);
