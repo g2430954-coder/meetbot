@@ -22,10 +22,14 @@ async function cancelAndDeleteRunningWorkflows() {
         });
 
         if (res.data && Array.isArray(res.data.workflow_runs)) {
+            const now = Date.now();
             for (const run of res.data.workflow_runs) {
+                const createdAt = new Date(run.created_at).getTime();
                 const isRunning = run.status === 'in_progress' || run.status === 'queued' || run.status === 'waiting';
-                if (isRunning) {
-                    logger.info(`Cancelling running workflow #${run.id}...`);
+                const isOld = (now - createdAt > 10000); // Only target runs older than 10 seconds
+
+                if (isRunning && isOld) {
+                    logger.info(`Cancelling OLD workflow run #${run.id}...`);
                     await axios.post(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}/cancel`, {}, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
                     }).catch(() => {});
@@ -34,8 +38,8 @@ async function cancelAndDeleteRunningWorkflows() {
                     await new Promise(r => setTimeout(r, 1000));
                 }
 
-                // Delete completed/cancelled workflow run logs if requested
-                if (run.status === 'completed' || run.status === 'cancelled' || isRunning) {
+                // Delete completed or cancelled workflow run logs
+                if ((run.status === 'completed' || run.status === 'cancelled') && isOld) {
                     logger.info(`Deleting workflow run log #${run.id}...`);
                     await axios.delete(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}`, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }

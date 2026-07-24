@@ -30,18 +30,29 @@ const processedUpdates = new Map();
  */
 async function throttledEdit(ctx, text, markup) {
     const now = Date.now();
-    if (now - sessionState.lastActionTime < 2500) {
-        await new Promise(r => setTimeout(r, 2500 - (now - sessionState.lastActionTime)));
+    if (now - sessionState.lastActionTime < 3500) {
+        await new Promise(r => setTimeout(r, 3500 - (now - sessionState.lastActionTime)));
     }
     sessionState.lastActionTime = Date.now();
 
     if (sessionState.playerMessageId) {
-        return ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
-            parse_mode: 'Markdown', ...markup
-        }).catch(e => {
+        try {
+            return await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
+                parse_mode: 'Markdown', ...markup
+            });
+        } catch (e) {
             if (e.description && e.description.includes("message is not modified")) return;
+            if (e.description && e.description.includes("Too Many Requests")) {
+                const wait = (parseInt(e.description.match(/\d+/)?.[0]) || 5) + 1;
+                logger.warn(`Telegram 429 Rate Limit. Backing off ${wait}s before edit retry...`);
+                await new Promise(r => setTimeout(r, wait * 1000));
+                sessionState.lastActionTime = Date.now();
+                return ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
+                    parse_mode: 'Markdown', ...markup
+                }).catch(() => {});
+            }
             logger.error("Throttled Edit Error:", e.message);
-        });
+        }
     }
 }
 

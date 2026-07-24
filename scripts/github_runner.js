@@ -44,7 +44,7 @@ let systemLogs = ["Kernel mounting display...", "Initializing visual bridge..."]
 
 // Throttling for Telegram
 let lastUIUpdate = 0;
-const UI_UPDATE_INTERVAL = 2500; // 2.5s is safest to avoid 429
+const UI_UPDATE_INTERVAL = 4000; // 4s prevents Telegram 429 rate limit
 
 // Use built-in chrome on GitHub
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
@@ -94,9 +94,15 @@ const masterUIInterval = setInterval(async () => {
         });
     } catch (e) {
         if (e.description && e.description.includes("message is not modified")) return;
-        console.warn("UI Push throttled by Telegram (429 or network).");
+        if (e.description && e.description.includes("Too Many Requests")) {
+            const waitSec = (parseInt(e.description.match(/\d+/)?.[0]) || 5) + 1;
+            console.warn(`Telegram 429 Rate Limit in runner. Backing off ${waitSec}s...`);
+            lastUIUpdate = Date.now() + (waitSec * 1000);
+            return;
+        }
+        console.warn("UI Push throttled by Telegram.");
     }
-}, 500); // Check every 500ms, but only push if 2.5s passed
+}, 1000); // Check every 500ms, but only push if 2.5s passed
 
 function getTimerString() {
     if (!recordingStartTime || !isRecording) return null;
