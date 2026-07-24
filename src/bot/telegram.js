@@ -278,8 +278,12 @@ bot.action('help_guide', (ctx) => {
 });
 
 const app = express();
-app.get('/', (req, res) => res.status(200).send('OK'));
-app.listen(process.env.PORT || 10000);
+app.get('/', (req, res) => res.status(200).send('GHOST meet Engine Active'));
+app.get('/ping', (req, res) => res.status(200).json({ status: 'active', message: 'PONG', timestamp: new Date().toISOString() }));
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime(), session: sessionState.isJoined ? 'CONNECTED' : 'IDLE' }));
+app.listen(process.env.PORT || 10000, () => {
+    logger.info(`Web server listening on port ${process.env.PORT || 10000} for keep-alive pings.`);
+});
 
 async function launchBot() {
     try {
