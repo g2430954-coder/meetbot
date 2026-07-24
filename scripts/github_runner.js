@@ -322,6 +322,152 @@ async function run() {
             res.json({ isRecording, progressStatus });
         });
 
+        // Intercept vnc.html to inject Mobile Cyber-Control Overlay
+        expressApp.get(['/vnc.html', '/vnc_lite.html'], (req, res) => {
+            const proxyReq = http.request({
+                host: '127.0.0.1',
+                port: 6081,
+                path: req.url,
+                method: 'GET',
+                headers: req.headers
+            }, (proxyRes) => {
+                let body = '';
+                proxyRes.setEncoding('utf8');
+                proxyRes.on('data', (chunk) => body += chunk);
+                proxyRes.on('end', () => {
+                    const mobileOverlayHTML = `
+<!-- GHOST MEET MOBILE CYBER CONTROLS (Client-Side Only: Never recorded in video) -->
+<style>
+  #ghost-mobile-control-bar {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 999999;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(10, 15, 25, 0.88);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(0, 255, 170, 0.4);
+    border-radius: 30px;
+    padding: 6px 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    user-select: none;
+    touch-action: manipulation;
+    font-family: system-ui, -apple-system, sans-serif;
+    transition: all 0.3s ease;
+  }
+  #ghost-mobile-control-bar.collapsed .ghost-btn-full {
+    display: none !important;
+  }
+  .ghost-mob-btn {
+    background: linear-gradient(135deg, #00ffaa, #00bfff);
+    color: #000;
+    border: none;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 6px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    box-shadow: 0 0 10px rgba(0, 255, 170, 0.3);
+  }
+  .ghost-mob-btn:active {
+    transform: scale(0.95);
+  }
+  .ghost-mob-btn-icon {
+    background: rgba(255, 255, 255, 0.15);
+    color: #00ffaa;
+    border: 1px solid rgba(0, 255, 170, 0.4);
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #ghost-hidden-input {
+    position: fixed;
+    opacity: 0;
+    top: -9999px;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+  }
+</style>
+
+<div id="ghost-mobile-control-bar">
+  <button class="ghost-mob-btn-icon" id="ghost-toggle-bar" title="Toggle Controls">⚙️</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍+</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍-</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-fit">📐 Fit</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️ Keybd</button>
+</div>
+<input type="text" id="ghost-hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off">
+
+<script>
+(function() {
+  let currentScale = 0.8;
+  const bar = document.getElementById('ghost-mobile-control-bar');
+  const toggleBtn = document.getElementById('ghost-toggle-bar');
+  const zoomInBtn = document.getElementById('ghost-zoom-in');
+  const zoomOutBtn = document.getElementById('ghost-zoom-out');
+  const zoomFitBtn = document.getElementById('ghost-zoom-fit');
+  const kbdBtn = document.getElementById('ghost-keyboard');
+  const hiddenInput = document.getElementById('ghost-hidden-input');
+
+  if (toggleBtn) toggleBtn.addEventListener('click', () => bar.classList.toggle('collapsed'));
+
+  function applyScale(scale) {
+    currentScale = Math.max(0.4, Math.min(3.0, scale));
+    const canvas = document.querySelector('canvas') || document.getElementById('noVNC_canvas');
+    if (canvas) {
+      canvas.style.transform = 'scale(' + currentScale + ')';
+      canvas.style.transformOrigin = 'top left';
+    }
+  }
+
+  if (zoomInBtn) zoomInBtn.addEventListener('click', () => applyScale(currentScale + 0.25));
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyScale(currentScale - 0.25));
+  if (zoomFitBtn) zoomFitBtn.addEventListener('click', () => applyScale(0.8));
+
+  if (kbdBtn && hiddenInput) {
+    kbdBtn.addEventListener('click', () => {
+      hiddenInput.focus();
+    });
+
+    hiddenInput.addEventListener('input', (e) => {
+      const char = e.data;
+      if (char && window.UI && window.UI.rfb) {
+        for (let i = 0; i < char.length; i++) {
+          const code = char.charCodeAt(i);
+          window.UI.rfb.sendKey(code, true);
+          window.UI.rfb.sendKey(code, false);
+        }
+      }
+      hiddenInput.value = '';
+    });
+  }
+})();
+</script>
+`;
+                    const modifiedBody = body.includes('</body>') ? body.replace('</body>', mobileOverlayHTML + '</body>') : body + mobileOverlayHTML;
+                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                    res.end(modifiedBody);
+                });
+            });
+
+            proxyReq.on('error', () => {
+                if (!res.headersSent) res.status(502).send("Visual Bridge Initializing...");
+            });
+
+            proxyReq.end();
+        });
+
         // Proxy all other HTTP traffic to NoVNC on 6081
         expressApp.use((req, res) => {
             const proxyReq = http.request({
