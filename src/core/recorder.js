@@ -40,7 +40,17 @@ async function startRecording() {
         '-y', path.join(chunksDir, 'GHOST_part_%03d.mp4')
     ]);
 
+    ffmpegProcess.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('Error') || msg.includes('fail') || msg.includes('Fatal')) {
+            logger.warn(`[FFMPEG STREAM LOG] ${msg.trim()}`);
+        }
+    });
+
     ffmpegProcess.on('error', (err) => logger.error(`FFMPEG Startup Error: ${err.message}`));
+    ffmpegProcess.on('exit', (code, signal) => {
+        logger.info(`FFmpeg process exited with code ${code}, signal ${signal}`);
+    });
 }
 
 /**

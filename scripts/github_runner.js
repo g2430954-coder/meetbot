@@ -168,15 +168,6 @@ async function processLatestSegments() {
 }
 
 const backgroundTaskInterval = setInterval(async () => {
-    try {
-        const page = browserManager.getPage();
-        if (page && typeof page.isClosed === 'function' && page.isClosed()) {
-            console.log("⚠️ Meeting page closed or disconnected. Auto-finalizing...");
-            await finalizeAndUpload(vncUrlGlobal);
-            return;
-        }
-    } catch (e) {}
-
     if (isRecording) {
         const shouldStop = await checkStopSignal();
         if (shouldStop) {
@@ -185,7 +176,7 @@ const backgroundTaskInterval = setInterval(async () => {
             await processLatestSegments();
         }
     } else {
-        // ALWAYS check for record signal (Manual Override)
+        // Check for record signal
         const recordSignal = await checkRecordSignal();
         if (recordSignal) await triggerStartRecording();
     }
