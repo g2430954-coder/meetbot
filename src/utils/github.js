@@ -74,6 +74,35 @@ async function isWorkflowRunning() {
 }
 
 /**
+ * Sets the GHOST_SIGNAL GitHub Action repository variable for instant runner synchronization
+ */
+async function setGhostSignal(signalValue) {
+    const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    if (!PAT_TOKEN) return;
+
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/variables/GHOST_SIGNAL`;
+    try {
+        await axios.patch(url, { value: signalValue }, {
+            headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+        });
+        logger.info(`GHOST_SIGNAL updated to: ${signalValue}`);
+    } catch (err) {
+        if (err.response && err.response.status === 404) {
+            await axios.post(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/variables`, {
+                name: 'GHOST_SIGNAL',
+                value: signalValue
+            }, {
+                headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
+            }).catch(e => logger.error("Failed to create GHOST_SIGNAL var:", e.message));
+        } else {
+            logger.error("Failed to set GHOST_SIGNAL:", err.message);
+        }
+    }
+}
+
+/**
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
 async function triggerRunner(meetingUrl, playerMessageId, chatId) {
@@ -88,6 +117,7 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId) {
     // Auto-cancel and delete any previous or stuck workflows before launching
     logger.info("Cleaning up previous workflow runs on GitHub...");
     await cancelAndDeleteRunningWorkflows();
+    await setGhostSignal('READY');
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
 
@@ -116,10 +146,10 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId) {
 }
 
 /**
- * Sends record start signal to active GitHub Runner via Repository Dispatch
- * NOTE: This does NOT trigger a new workflow, only sends an event.
+ * Sends record start signal to active GitHub Runner via Repository Dispatch and Repo Variable
  */
 async function triggerRecordRunner(chatId, playerMessageId) {
+    await setGhostSignal('RECORD');
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -132,7 +162,7 @@ async function triggerRecordRunner(chatId, playerMessageId) {
 
     try {
         await axios.post(url, {
-            event_type: 'record_ghost_runner', // Runner listens for this
+            event_type: 'record_ghost_runner',
             client_payload: {
                 player_message_id: playerMessageId,
                 chat_id: chatId
@@ -152,9 +182,10 @@ async function triggerRecordRunner(chatId, playerMessageId) {
 }
 
 /**
- * Sends stop signal to active GitHub Runner via Repository Dispatch
+ * Sends stop signal to active GitHub Runner via Repository Dispatch and Repo Variable
  */
 async function triggerStopRunner(chatId, playerMessageId) {
+    await setGhostSignal('STOP');
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -188,5 +219,5 @@ async function triggerStopRunner(chatId, playerMessageId) {
     }
 }
 
-module.exports = { triggerRunner, triggerRecordRunner, triggerStopRunner, isWorkflowRunning, cancelAndDeleteRunningWorkflows };
+module.exports = { triggerRunner, triggerRecordRunner, triggerStopRunner, isWorkflowRunning, cancelAndDeleteRunningWorkflows, setGhostSignal };
 

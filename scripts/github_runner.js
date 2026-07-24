@@ -106,53 +106,31 @@ function getTimerString() {
     return `${mins}:${secs}`;
 }
 
-async function checkRecordSignal() {
+async function getGhostSignal() {
     try {
         const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
         const owner = process.env.GITHUB_OWNER;
         const repo = process.env.GITHUB_REPO;
-        if (!token || !owner || !repo) return false;
+        if (!token || !owner || !repo) return null;
 
-        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/events`, {
+        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/actions/variables/GHOST_SIGNAL`, {
             headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
             timeout: 3000
         });
+        return res.data ? res.data.value : null;
+    } catch (e) {
+        return null;
+    }
+}
 
-        if (Array.isArray(res.data)) {
-            for (const ev of res.data) {
-                if (ev.type === 'RepositoryDispatchEvent' && ev.payload && ev.payload.action === 'record_ghost_runner') {
-                    const eventTime = new Date(ev.created_at).getTime();
-                    // Increased window to 10s to ensure signal is caught
-                    if (eventTime >= runnerStartTime - 10000) return true;
-                }
-            }
-        }
-    } catch (e) {}
-    return false;
+async function checkRecordSignal() {
+    const sig = await getGhostSignal();
+    return sig === 'RECORD';
 }
 
 async function checkStopSignal() {
-    try {
-        const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
-        const owner = process.env.GITHUB_OWNER;
-        const repo = process.env.GITHUB_REPO;
-        if (!token || !owner || !repo) return false;
-
-        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/events`, {
-            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
-            timeout: 3000
-        });
-
-        if (Array.isArray(res.data)) {
-            for (const ev of res.data) {
-                if (ev.type === 'RepositoryDispatchEvent' && ev.payload && ev.payload.action === 'stop_ghost_runner') {
-                    const eventTime = new Date(ev.created_at).getTime();
-                    if (eventTime >= runnerStartTime - 5000) return true;
-                }
-            }
-        }
-    } catch (e) {}
-    return false;
+    const sig = await getGhostSignal();
+    return sig === 'STOP';
 }
 
 async function processLatestSegments() {
