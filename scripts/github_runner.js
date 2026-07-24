@@ -186,6 +186,15 @@ async function processLatestSegments() {
 }
 
 const backgroundTaskInterval = setInterval(async () => {
+    try {
+        const page = browserManager.getPage();
+        if (page && typeof page.isClosed === 'function' && page.isClosed()) {
+            console.log("⚠️ Meeting page closed or disconnected. Auto-finalizing...");
+            await finalizeAndUpload(vncUrlGlobal);
+            return;
+        }
+    } catch (e) {}
+
     if (isRecording) {
         const shouldStop = await checkStopSignal();
         if (shouldStop) {
@@ -208,7 +217,7 @@ async function triggerStartRecording() {
         recordingStartTime = Date.now();
         isRecording = true;
         progressStatus = 'RECORDING';
-        systemLogs.push("Signal received: Recording started.");
+        systemLogs.push("Auto-Capture Active: Recording started.");
         if (systemLogs.length > 3) systemLogs.shift();
     }
 }
@@ -292,6 +301,10 @@ async function run() {
         app.get('/record', async (req, res) => { res.json({ status: 'recording' }); triggerStartRecording(); });
         app.get('/stop', async (req, res) => { res.json({ status: 'finalizing' }); finalizeAndUpload(vncUrlGlobal); });
         app.listen(8088);
+
+        // ⚡ AUTOMATIC ZERO-CLICK RECORDING START
+        console.log("⚡ Auto-starting HD capture (Zero-Click Automation)...");
+        await triggerStartRecording();
 
     } catch (error) {
         console.error("Runner Execution Error:", error);
