@@ -101,9 +101,11 @@ function generatePlayerUI(params) {
         buttons.push([Markup.button.callback('⏺ START CAPTURE', 'cmd_record')]);
     } else if (status === 'RECORDING') {
         buttons.push([Markup.button.callback('🛑 TERMINATE & SAVE', 'cmd_stop')]);
+    } else if (status === 'COMPLETED' || status === 'ERROR') {
+        buttons.push([Markup.button.callback('🔄 NEW SESSION', 'cmd_new_session')]);
     }
 
-    if (status !== 'RECORDING' && status !== 'FINALIZING') {
+    if (status !== 'RECORDING' && status !== 'FINALIZING' && status !== 'COMPLETED') {
         buttons.push([Markup.button.callback('📟 DIAGNOSTICS', 'engine_status')]);
     }
 

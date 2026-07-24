@@ -115,13 +115,27 @@ bot.start((ctx) => {
 });
 
 /**
+ * Resets the session state for a fresh start
+ */
+function resetSession() {
+    sessionState.isJoined = false;
+    sessionState.isRecording = false;
+    sessionState.currentUrl = null;
+    sessionState.playerMessageId = null;
+    if (sessionState.monitorInterval) clearInterval(sessionState.monitorInterval);
+}
+
+/**
  * /join <url> - Deploy visual engine
  */
 bot.command('join', async (ctx) => {
     const meetingUrl = extractMeetingUrl(ctx.message.text);
     if (!meetingUrl) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
 
-    if (sessionState.isJoined) {
+    // Auto-reset if in completed/error state
+    if (!sessionState.isRecording && sessionState.isJoined === false) {
+        resetSession();
+    } else if (sessionState.isJoined) {
         return ctx.replyWithMarkdown("⚠️ *Active Session Exists*. Use `/stop` first.");
     }
 
@@ -149,7 +163,6 @@ bot.command('join', async (ctx) => {
  * Handle Record execution
  */
 async function handleRecord(ctx) {
-    if (!sessionState.isJoined) return ctx.replyWithMarkdown("❌ *Error:* Not joined yet.");
     if (sessionState.isRecording) return;
 
     sessionState.isRecording = true;
@@ -158,7 +171,7 @@ async function handleRecord(ctx) {
         status: 'RECORDING',
         meetingUrl: sessionState.currentUrl,
         progress: 100,
-        logs: ["Recording signal sent...", "Engaging engine..."]
+        logs: ["Manual Override: Starting capture...", "Engaging engine..."]
     });
 
     await throttledEdit(ctx, startingUI.text, startingUI.markup);
@@ -181,15 +194,13 @@ bot.action('cmd_record', async (ctx) => {
  * Handle Stop & Save execution
  */
 async function handleStop(ctx) {
-    if (!sessionState.isJoined) return;
-
     sessionState.isRecording = false;
 
     const stoppingUI = ui.generatePlayerUI({
         status: 'FINALIZING',
         meetingUrl: sessionState.currentUrl,
         progress: 10,
-        logs: ["Stop signal sent.", "Finalizing assets..."]
+        logs: ["Manual Stop: Closing capture...", "Finalizing assets..."]
     });
 
     await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup);
@@ -199,13 +210,11 @@ async function handleStop(ctx) {
     } catch (error) {
         logger.error("GitHub Stop Trigger Failure:", error);
     } finally {
+        // Reduced reset delay for "Zero-Wait" feel
         setTimeout(() => {
             sessionState.isJoined = false;
             sessionState.isRecording = false;
-            sessionState.currentUrl = null;
-            sessionState.playerMessageId = null;
-            if (sessionState.monitorInterval) clearInterval(sessionState.monitorInterval);
-        }, 60000);
+        }, 5000);
     }
 }
 
@@ -213,6 +222,12 @@ bot.command('stop', handleStop);
 bot.action('cmd_stop', async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) {}
     return handleStop(ctx);
+});
+
+bot.action('cmd_new_session', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    resetSession();
+    return ctx.replyWithMarkdown("🔄 *Terminal Reset Complete.*\nReady for a new meeting link.");
 });
 
 bot.command('status', (ctx) => {

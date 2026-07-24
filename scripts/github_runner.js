@@ -192,7 +192,8 @@ const backgroundTaskInterval = setInterval(async () => {
         } else {
             await processLatestSegments();
         }
-    } else if (progressStatus === 'READY') {
+    } else {
+        // ALWAYS check for record signal (Manual Override)
         const recordSignal = await checkRecordSignal();
         if (recordSignal) await triggerStartRecording();
     }

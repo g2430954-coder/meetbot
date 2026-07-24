@@ -77,7 +77,10 @@ async function stopRecording() {
                 resolve();
             });
         });
+        ffmpegProcess = null;
     }
+
+    if (!fs.existsSync(chunksDir)) return { videoChunks: [] };
 
     const videoChunks = fs.readdirSync(chunksDir)
         .filter(f => f.endsWith('.mp4'))
