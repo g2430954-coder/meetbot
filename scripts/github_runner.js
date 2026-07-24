@@ -221,8 +221,22 @@ async function finalizeAndUpload(vncUrl) {
                 processedSegments.add(file);
                 const filePath = path.join(chunksDir, file);
                 targetProgress = Math.min(95, targetProgress + 10);
-                systemLogs.push(`Uploading final part ${processedSegments.size}...`);
+                systemLogs.push(`Processing & uploading final part ${processedSegments.size}...`);
                 if (systemLogs.length > 3) systemLogs.shift();
+
+                // Transcribe final segment before upload
+                const audioPath = path.join(outputDir, `${file}.wav`);
+                const audioExtracted = await recorder.extractAudio(filePath, audioPath);
+                if (audioExtracted) {
+                    const transcriptPath = await transcriber.transcribe(audioPath);
+                    if (transcriptPath && fs.existsSync(transcriptPath)) {
+                        const text = fs.readFileSync(transcriptPath, 'utf8');
+                        const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
+                        if (cleanText) {
+                            fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+                        }
+                    }
+                }
 
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size}`
@@ -231,10 +245,15 @@ async function finalizeAndUpload(vncUrl) {
         }
 
         if (fs.existsSync(masterTranscriptPath)) {
+            const transcriptContent = fs.readFileSync(masterTranscriptPath, 'utf8').trim();
+            if (!transcriptContent || transcriptContent.endsWith("━━━━━━━━━━━━━━━━━━━━━━")) {
+                fs.appendFileSync(masterTranscriptPath, "\n\n[SYSTEM: No speech or audio detected during this session.]\n");
+            }
+
             await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(masterTranscriptPath), filename: 'GHOST_meet_Full_Transcript.txt' }, {
-                caption: "📜 *Full AI Meeting Transcript*",
+                caption: "📜 *Full AI Class / Meeting Transcript File*",
                 parse_mode: 'Markdown'
-            });
+            }).catch(e => console.error("Transcript upload error:", e.message));
         }
 
         targetProgress = 100;
