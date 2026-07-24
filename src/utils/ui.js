@@ -1,89 +1,110 @@
 const { Markup } = require('telegraf');
 
 /**
- * GHOST meet | Pro UI Engine
- * Generates consistent, high-end "Video Player" style interfaces
+ * GHOST meet | Advanced UI Engine v2.0
+ * Generates a "Cyber Terminal" aesthetic for the capture suite
  */
 
 const STATUS_ICONS = {
-    INITIALIZING: '⏳',
-    DEPLOYING: '🚀',
-    READY: '✅',
+    INITIALIZING: '⚡',
+    DEPLOYING: '🛰',
+    READY: '🟢',
     RECORDING: '🔴',
-    FINALIZING: '💾',
-    COMPLETED: '✨',
-    ERROR: '🚨'
+    FINALIZING: '⚙️',
+    COMPLETED: '🏁',
+    ERROR: '⚠️'
 };
 
 function generatePlayerUI(params) {
-    const { status, timer, meetingUrl, vncUrl, partCount, progress, stepLog, latestTranscript } = params;
+    const {
+        status,
+        timer,
+        meetingUrl,
+        vncUrl,
+        partCount,
+        progress,
+        stepLog,
+        latestTranscript,
+        logs = [] // Array of last 3-5 log entries
+    } = params;
+
     const icon = STATUS_ICONS[status] || '🛸';
 
-    let uiText = `${icon} *GHOST meet | LIVE PLAYER*\n`;
+    // 1. HEADER SECTION
+    let uiText = `\`[ GHOST-MEET v2.0 | KERNEL ACTIVE ]\`\n`;
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
-    uiText += `📍 Status: *${status}*\n`;
 
+    // 2. STATUS & TELEMETRY BLOCK
+    uiText += `📍 STATUS: *${status}* ${icon}\n`;
+    if (timer) {
+        uiText += `⏱ UPTIME: \`${timer}\`\n`;
+    }
+
+    // Fake/Simulated Telemetry for "Cool" factor
+    const pulse = status === 'RECORDING' ? 'HIGH' : 'NORMAL';
+    uiText += `📊 SYSTEM: \`⚡Pulse:${pulse}\` | \`📟CPU:12%\` | \`📡Signal:MAX\`\n`;
+
+    if (partCount) {
+        uiText += `🎥 STORAGE: \`${partCount} segments secured\`\n`;
+    }
+
+    uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    // 3. PROGRESS & LOGS SECTION
+    if (progress !== undefined && status !== 'RECORDING') {
+        const label = (status === 'INITIALIZING' || status === 'DEPLOYING') ? 'DEPLOYMENT' : 'PROCESSING';
+        uiText += `📡 *${label} FEED:*\n`;
+        uiText += `${getAdvancedProgressBar(progress)}\n\n`;
+    }
+
+    // Rolling Terminal Logs
+    if (logs.length > 0 || stepLog) {
+        uiText += `📟 *TERMINAL OUTPUT:*\n`;
+        uiText += `\`\`\``;
+        const displayLogs = logs.length > 0 ? logs.slice(-3) : [stepLog];
+        displayLogs.forEach(log => {
+            uiText += `\n> ${log}`;
+        });
+        uiText += `\`\`\`\n`;
+    }
+
+    // 4. LIVE DASHBOARD (TRANSCRIPT)
+    if (status === 'RECORDING' || latestTranscript) {
+        uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+        uiText += `📜 *LIVE TRANSCRIPTION DASHBOARD:*\n`;
+        uiText += `\`\`\``;
+        uiText += latestTranscript ? `\n"${latestTranscript}"` : `\nWaiting for active speech stream...`;
+        uiText += `\`\`\`\n`;
+    }
+
+    // 5. FOOTER & LINKS
     if (meetingUrl && !meetingUrl.includes('serveo')) {
-        uiText += `🔗 Room Link: [MEETING ROOM](${meetingUrl})\n`;
+        uiText += `🔗 [MEETING ROOM](${meetingUrl}) | `;
     }
 
     const rawRdpUrl = vncUrl || (meetingUrl && meetingUrl.includes('serveo') ? meetingUrl : null);
     let finalVncUrl = null;
     if (rawRdpUrl) {
         finalVncUrl = rawRdpUrl.includes('vnc.html') ? rawRdpUrl : `${rawRdpUrl.replace(/\/$/, '')}/vnc.html?autoconnect=true`;
-        uiText += `🖥 Live RDP View: [OPEN RDP DASHBOARD](${finalVncUrl})\n`;
+        uiText += `🖥 [LIVE RDP DASHBOARD](${finalVncUrl})\n`;
+    } else {
+        uiText += `\n`;
     }
 
-    if (timer) {
-        uiText += `⏱ Recording Time: *${timer}*\n`;
-    }
-
-    if (progress !== undefined) {
-        const label = (status === 'INITIALIZING' || status === 'DEPLOYING') ? '🚀 Deployment Progress' : '📊 Processing Progress';
-        uiText += `${label}: ${getProgressBar(progress)}\n`;
-    }
-
-    if (partCount) {
-        uiText += `🎥 Captured Segments: *${partCount} parts uploaded*\n`;
-    }
-
-    if (latestTranscript) {
-        uiText += `\n📜 *Live Transcription snippet:*\n_"${latestTranscript}"_\n`;
-    }
-
-    uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
-
-    if (stepLog) {
-        uiText += `${stepLog}`;
-    } else if (status === 'INITIALIZING') {
-        uiText += `⏳ Step 1/4: Initializing virtual frame buffer & audio bridge...`;
-    } else if (status === 'DEPLOYING') {
-        uiText += `🚀 Deploying Cloud Runner & setting up live RDP feed...`;
-    } else if (status === 'READY') {
-        uiText += `✨ System Standby (100% Ready). Tap button below or send /record to start.`;
-    } else if (status === 'RECORDING') {
-        uiText += `🔴 Capturing 1080p HD Feed + Audio (Stereo)...`;
-    } else if (status === 'FINALIZING') {
-        uiText += `⚙️ Finalizing capture, splitting MP4 parts & generating English transcript...`;
-    } else if (status === 'COMPLETED') {
-        uiText += `✅ All video parts and transcript secured in group storage.`;
-    }
-
-    // Inline Buttons based on state
+    // Inline Buttons
     const buttons = [];
-    
     if (finalVncUrl) {
-        buttons.push([Markup.button.url('🖥 OPEN LIVE RDP VIEW', finalVncUrl)]);
+        buttons.push([Markup.button.url('🖥 OPEN RDP VIEW', finalVncUrl)]);
     }
 
     if (status === 'READY') {
-        buttons.push([Markup.button.callback('⏺ START RECORDING', 'cmd_record')]);
+        buttons.push([Markup.button.callback('⏺ START CAPTURE', 'cmd_record')]);
     } else if (status === 'RECORDING') {
-        buttons.push([Markup.button.callback('🛑 STOP & SAVE', 'cmd_stop')]);
+        buttons.push([Markup.button.callback('🛑 TERMINATE & SAVE', 'cmd_stop')]);
     }
 
     if (status !== 'RECORDING' && status !== 'FINALIZING') {
-        buttons.push([Markup.button.callback('📟 ENGINE DIAGNOSTICS', 'engine_status')]);
+        buttons.push([Markup.button.callback('📟 DIAGNOSTICS', 'engine_status')]);
     }
 
     return {
@@ -92,11 +113,12 @@ function generatePlayerUI(params) {
     };
 }
 
-function getProgressBar(percent) {
-    const total = 20; // 20 blocks for higher resolution (5% per block)
+function getAdvancedProgressBar(percent) {
+    const total = 15; // 15 blocks
     const progress = Math.round((percent / 100) * total);
     const remaining = total - progress;
-    return `[${"█".repeat(progress)}${"░".repeat(remaining)}] ${percent}%`;
+    // Using cyberpunk style blocks
+    return `\`▰${"▰".repeat(progress)}${"▱".repeat(remaining)}▱\` \`${percent}%\``;
 }
 
 module.exports = {

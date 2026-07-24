@@ -10,7 +10,7 @@ const logger = require('../src/utils/logger');
 const ui = require('../src/utils/ui');
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
-    console.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is missing in GitHub Secrets!");
+    console.error("❌ CRITICAL ERROR: TELEGRAM_BOT_TOKEN environment variable is missing!");
     process.exit(1);
 }
 
@@ -18,71 +18,64 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const meetingUrl = process.env.MEETING_URL;
 const groupId = process.env.ALLOWED_GROUP_ID;
 
-// Handoff data
 const playerMessageId = process.env.PLAYER_MESSAGE_ID;
 const chatId = process.env.CHAT_ID || groupId;
 
 let isRecording = false;
 let recordingStartTime = null;
 let processedSegments = new Set();
-let latestTranscript = "Waiting for speech...";
+let latestTranscript = "";
 const runnerStartTime = Date.now();
 
 const outputDir = path.join(__dirname, '../output');
 const chunksDir = path.join(outputDir, 'chunks');
+const masterTranscriptPath = path.join(outputDir, 'GHOST_meet_Full_Transcript.txt');
 
-// Progress State
-let targetProgress = 10; // Start at 10%
+// UI State Management
+let targetProgress = 10;
 let visualProgress = 1;
 let progressStatus = 'INITIALIZING';
-let progressLog = "🖥 Step 1/5: Mounting 1080p Virtual Display (Xvfb :99)...";
 let vncUrlGlobal = null;
+let systemLogs = ["Kernel mounting display...", "Initializing visual bridge..."];
 
 // Use built-in chrome on GitHub
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
 /**
  * MASTER UI ORCHESTRATOR
- * A single, unified loop that updates Telegram in a rate-limit-safe way (every 2s)
  */
 const masterUIInterval = setInterval(async () => {
-    // 1. SMOOTH PROGRESS CALCULATION
-    // If visual is behind target, move it closer.
-    // If it's the same, and we're in a slow phase, creep it up by 1% to show life.
     if (visualProgress < targetProgress) {
         visualProgress += Math.max(1, Math.floor((targetProgress - visualProgress) / 4));
     } else if (visualProgress < 99 && (progressStatus === 'DEPLOYING' || progressStatus === 'FINALIZING')) {
-        visualProgress += 1; // Creep up
+        visualProgress += 1;
     }
 
-    // 2. PACE TARGET PROGRESS (Auto-advance stages if they take too long)
     if (progressStatus === 'DEPLOYING') {
-        if (visualProgress > 20 && targetProgress < 30) targetProgress = 30;
-        if (visualProgress > 45 && targetProgress < 60) targetProgress = 60;
-        if (visualProgress > 75 && targetProgress < 90) targetProgress = 90;
-        progressLog = getWorkflowStepLog(visualProgress);
+        const newLog = getWorkflowStepLog(visualProgress);
+        if (newLog && !systemLogs.includes(newLog)) {
+            systemLogs.push(newLog);
+            if (systemLogs.length > 3) systemLogs.shift();
+        }
     }
 
-    // 3. GENERATE & PUSH UI
     const currentUI = ui.generatePlayerUI({
-        status: progressStatus,
+        status: isRecording ? 'RECORDING' : progressStatus,
         progress: Math.min(100, visualProgress),
         meetingUrl: meetingUrl,
         vncUrl: vncUrlGlobal,
-        stepLog: progressLog,
         partCount: processedSegments.size,
         latestTranscript: isRecording ? latestTranscript : null,
-        timer: getTimerString()
+        timer: getTimerString(),
+        logs: systemLogs
     });
 
     try {
         await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, currentUI.text, {
             parse_mode: 'Markdown', ...currentUI.markup
         });
-    } catch (e) {
-        // Silent catch for "message is not modified" or rate limits
-    }
-}, 2000); // 2 seconds is the sweet spot for Telegram stability
+    } catch (e) {}
+}, 2000);
 
 function getTimerString() {
     if (!recordingStartTime || !isRecording) return null;
@@ -157,6 +150,9 @@ async function processLatestSegments() {
                 const transcriptPath = await transcriber.transcribe(audioPath);
                 if (transcriptPath && fs.existsSync(transcriptPath)) {
                     const text = fs.readFileSync(transcriptPath, 'utf8');
+                    const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
+                    fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+
                     const lines = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:'));
                     if (lines.length > 0) {
                         latestTranscript = lines[lines.length - 1].replace(/^\[\d+:\d+\]\s*/, '');
@@ -165,13 +161,12 @@ async function processLatestSegments() {
             }
 
             await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
-                caption: `🎥 GHOST meet Recording | Part ${processedSegments.size}\n📜 Snippet: ${latestTranscript.substring(0, 100)}...`
+                caption: `🎥 GHOST meet Recording | Part ${processedSegments.size}\n📜 Text: ${latestTranscript.substring(0, 500)}`
             }).catch(e => console.error(`Part upload error: ${e.message}`));
         }
     }
 }
 
-// Separate interval for heavy background tasks (signals and segments)
 const backgroundTaskInterval = setInterval(async () => {
     if (isRecording) {
         const shouldStop = await checkStopSignal();
@@ -184,16 +179,18 @@ const backgroundTaskInterval = setInterval(async () => {
         const recordSignal = await checkRecordSignal();
         if (recordSignal) await triggerStartRecording();
     }
-}, 5000);
+}, 1500);
 
 async function triggerStartRecording() {
     if (!isRecording) {
         console.log("🔴 Starting HD Stream Recording...");
+        fs.writeFileSync(masterTranscriptPath, "✨ GHOST meet | FULL AI TRANSCRIPT\n━━━━━━━━━━━━━━━━━━━━━━\n\n");
         await recorder.startRecording();
         recordingStartTime = Date.now();
         isRecording = true;
         progressStatus = 'RECORDING';
-        progressLog = '🔴 Capturing 1080p HD Feed + Audio (Stereo)...';
+        systemLogs.push("Recording engine engaged.");
+        if (systemLogs.length > 3) systemLogs.shift();
     }
 }
 
@@ -204,7 +201,8 @@ async function finalizeAndUpload(vncUrl) {
     try {
         progressStatus = 'FINALIZING';
         targetProgress = 40;
-        progressLog = "⚙️ Finalizing capture and splitting final MP4 parts...";
+        systemLogs.push("Stopping capture, finalizing segments...");
+        if (systemLogs.length > 3) systemLogs.shift();
 
         await recorder.stopRecording();
 
@@ -213,9 +211,9 @@ async function finalizeAndUpload(vncUrl) {
             if (!processedSegments.has(file)) {
                 processedSegments.add(file);
                 const filePath = path.join(chunksDir, file);
-
                 targetProgress = Math.min(95, targetProgress + 10);
-                progressLog = `📤 Uploading final video parts (${processedSegments.size})...`;
+                systemLogs.push(`Uploading final part ${processedSegments.size}...`);
+                if (systemLogs.length > 3) systemLogs.shift();
 
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size}`
@@ -223,10 +221,18 @@ async function finalizeAndUpload(vncUrl) {
             }
         }
 
+        if (fs.existsSync(masterTranscriptPath)) {
+            await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(masterTranscriptPath), filename: 'GHOST_meet_Full_Transcript.txt' }, {
+                caption: "📜 *Full AI Meeting Transcript*",
+                parse_mode: 'Markdown'
+            });
+        }
+
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'COMPLETED';
-        progressLog = "✅ All real-time parts uploaded successfully. Engine hibernated.";
+        systemLogs.push("All assets secured. Engine hibernated.");
+        if (systemLogs.length > 3) systemLogs.shift();
 
         setTimeout(() => {
             clearInterval(masterUIInterval);
@@ -235,23 +241,22 @@ async function finalizeAndUpload(vncUrl) {
         }, 10000);
 
     } catch (err) {
-        logger.error(`Stop Error: ${err.message}`);
+        console.error("Finalize Error:", err);
         process.exit(1);
     }
 }
 
 function getWorkflowStepLog(percent) {
-    if (percent < 20) return "🖥 Step 1/5: Mounting 1080p Virtual Display (Xvfb :99)...";
-    if (percent < 40) return "🔊 Step 2/5: Initializing PulseAudio Stereo Loopback Sink...";
-    if (percent < 65) return "📡 Step 3/5: Establishing Serveo Unlimited Visual RDP Tunnel...";
-    if (percent < 90) return "🌐 Step 4/5: Launching Stealth Chrome & Navigating to Meeting...";
-    return "⚡️ Step 5/5: Finalizing Frame Buffer & Audio Binding...";
+    if (percent < 20) return "Display :99 mounted.";
+    if (percent < 40) return "Audio bridge established.";
+    if (percent < 65) return "RDP tunnel secured.";
+    if (percent < 90) return "Chrome engine navigated.";
+    return "Frame buffer synced.";
 }
 
 async function run() {
     try {
         console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
-
         progressStatus = 'DEPLOYING';
         targetProgress = 20;
 
@@ -261,7 +266,8 @@ async function run() {
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'READY';
-        progressLog = '✨ System Standby (100% Ready). Tap button below or send /record to start.';
+        systemLogs.push("Ready for capture.");
+        if (systemLogs.length > 3) systemLogs.shift();
 
         const app = express();
         app.get('/record', async (req, res) => { res.json({ status: 'recording' }); triggerStartRecording(); });
@@ -275,3 +281,8 @@ async function run() {
 }
 
 run();
+
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled Rejection:', reason);
+    process.exit(1);
+});
