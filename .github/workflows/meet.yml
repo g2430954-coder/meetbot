@@ -8,7 +8,6 @@ concurrency:
   group: ghost_meet_session
   cancel-in-progress: true
 
-# Full permissions for all security and cleanup tasks
 permissions:
   actions: write
   contents: write
@@ -31,40 +30,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: '' # Explicitly disable caching to prevent "lock file not found" error
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Cache Node Modules
+        uses: actions/cache@v4
         with:
-          python-version: '3.10'
+          path: |
+            node_modules
+            ~/.npm
+          key: ${{ runner.os }}-node-v2-${{ hashFiles('package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-v2-
 
-      - name: Install Critical Tools (Fast Mode)
+      - name: Cache Python Packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-v2
+
+      - name: Install System Tools (Ultra-Fast)
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            xvfb pulseaudio dbus-x11 x11vnc novnc ffmpeg google-chrome-stable
+          sudo apt-get install -y -qq --no-install-recommends x11vnc novnc
 
       - name: Fast Node Install
-        run: npm install --no-audit --no-fund --quiet --no-package-lock
+        run: npm install --no-audit --no-fund --quiet --prefer-offline
 
       - name: Fast Python Install
-        run: |
-          pip install SpeechRecognition indic-transliteration --break-system-packages --quiet
+        run: pip install SpeechRecognition indic-transliteration --break-system-packages --quiet
 
       - name: Initialize Display & Audio & Visual Bridge
         env:
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
         run: |
           Xvfb :99 -screen 0 1920x1080x24 &
-          sleep 3
+          sleep 1
           
           # Setup Virtual Audio
           pulseaudio -D --exit-idle-time=-1 --disallow-exit
-          sleep 2
+          sleep 1
           pactl load-module module-virtual-sink sink_name=v_sink
           pactl set-default-sink v_sink
           
-          # ? FORCE MAX VOLUME (Fixes silent videos and missing STT)
+          # FORCE MAX VOLUME
           pactl set-sink-mute v_sink 0
           pactl set-sink-volume v_sink 100%
           pactl set-source-mute v_sink.monitor 0
@@ -77,7 +83,7 @@ jobs:
       - name: Setup SSH for Serveo
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan serveo.net >> ~/.ssh/known_hosts
+          ssh-keyscan serveo.net >> ~/.ssh/known_hosts 2>/dev/null || true
 
       - name: Launch GHOST Runner
         env:
