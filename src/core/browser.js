@@ -61,8 +61,63 @@ async function launchMeeting(url) {
             tunnelUrl = "http://localhost:6080";
         }
 
+/**
+ * Helper function to discover unpacked Chrome extensions in extensions/ directory or CHROME_EXTENSIONS env variable
+ */
+function getExtensionPaths() {
+    const extensionPaths = [];
+    const defaultExtensionsDir = path.join(__dirname, '../../extensions');
+
+    const checkAndAdd = (dirPath) => {
+        if (!dirPath) return;
+        const absPath = path.resolve(dirPath);
+        if (fs.existsSync(absPath) && fs.statSync(absPath).isDirectory()) {
+            const manifestPath = path.join(absPath, 'manifest.json');
+            if (fs.existsSync(manifestPath)) {
+                if (!extensionPaths.includes(absPath)) {
+                    extensionPaths.push(absPath);
+                }
+            }
+        }
+    };
+
+    if (fs.existsSync(defaultExtensionsDir)) {
+        try {
+            const items = fs.readdirSync(defaultExtensionsDir);
+            for (const item of items) {
+                const itemPath = path.join(defaultExtensionsDir, item);
+                checkAndAdd(itemPath);
+            }
+            checkAndAdd(defaultExtensionsDir);
+        } catch (e) {
+            logger.warn(`Error reading extensions directory: ${e.message}`);
+        }
+    }
+
+    const envExt = process.env.CHROME_EXTENSIONS || process.env.EXTENSION_PATH;
+    if (envExt) {
+        const customPaths = envExt.split(',').map(p => p.trim()).filter(Boolean);
+        for (const p of customPaths) {
+            checkAndAdd(p);
+        }
+    }
+
+    return extensionPaths;
+}
+
         const chromePath = process.env.CHROME_PATH || 
             (fs.existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : '/usr/bin/chromium');
+
+        const extPaths = getExtensionPaths();
+        const extensionFlags = [];
+        if (extPaths.length > 0) {
+            const joinedPaths = extPaths.join(',');
+            logger.info(`Loading ${extPaths.length} Chrome extension(s): ${joinedPaths}`);
+            extensionFlags.push(`--disable-extensions-except=${joinedPaths}`);
+            extensionFlags.push(`--load-extension=${joinedPaths}`);
+        } else {
+            logger.info("No Chrome extensions found in extensions/ folder or CHROME_EXTENSIONS env var.");
+        }
 
         logger.info(`Launching Ultimate Stealth Puppeteer on DISPLAY :99 for URL: ${url}`);
         browser = await puppeteer.launch({
@@ -90,7 +145,8 @@ async function launchMeeting(url) {
                 '--allow-running-insecure-content',
                 '--no-first-run',
                 '--no-default-browser-check',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                ...extensionFlags
             ],
             defaultViewport: null
         });
@@ -99,7 +155,11 @@ async function launchMeeting(url) {
 
         await page.evaluateOnNewDocument(() => {
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
-            window.chrome = { runtime: {} };
+            if (!window.chrome) {
+                window.chrome = { runtime: {} };
+            } else if (!window.chrome.runtime) {
+                window.chrome.runtime = {};
+            }
             Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
             Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
         });

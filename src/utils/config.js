@@ -6,5 +6,6 @@ module.exports = {
   ALLOWED_GROUP_ID: process.env.ALLOWED_GROUP_ID,
   NGROK_AUTH_TOKEN: process.env.NGROK_AUTH_TOKEN,
   PORT: process.env.PORT || 8080,
-  CHROME_PATH: process.env.CHROME_PATH || '/usr/bin/chromium'
+  CHROME_PATH: process.env.CHROME_PATH || '/usr/bin/chromium',
+  CHROME_EXTENSIONS: process.env.CHROME_EXTENSIONS
 };
