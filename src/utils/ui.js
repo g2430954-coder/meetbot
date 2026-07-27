@@ -102,7 +102,10 @@ function generatePlayerUI(params) {
     }
 
     if (status === 'READY') {
-        buttons.push([Markup.button.callback('⏺ START CAPTURE', 'cmd_record')]);
+        buttons.push([
+            Markup.button.callback('⏺ START CAPTURE', 'cmd_record'),
+            Markup.button.callback('🛑 END SESSION', 'cmd_stop')
+        ]);
     } else if (status === 'RECORDING') {
         buttons.push([Markup.button.callback('🛑 TERMINATE & SAVE', 'cmd_stop')]);
     } else if (status === 'COMPLETED' || status === 'ERROR') {

@@ -216,16 +216,18 @@ async function triggerStartRecording() {
 }
 
 async function finalizeAndUpload(vncUrl) {
-    if (!isRecording) return;
+    const wasRecording = isRecording;
     isRecording = false;
 
     try {
         progressStatus = 'FINALIZING';
         targetProgress = 40;
-        systemLogs.push("Stopping capture, finalizing segments...");
+        systemLogs.push(wasRecording ? "Stopping capture, finalizing segments..." : "Stopping session...");
         if (systemLogs.length > 3) systemLogs.shift();
 
-        await recorder.stopRecording();
+        if (wasRecording) {
+            await recorder.stopRecording();
+        }
 
         const allFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
         for (const file of allFiles) {
