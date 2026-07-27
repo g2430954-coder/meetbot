@@ -40,6 +40,7 @@ let targetProgress = 10;
 let visualProgress = 1;
 let progressStatus = 'INITIALIZING';
 let vncUrlGlobal = null;
+let activeParticipantName = null;
 let systemLogs = ["Kernel mounting display...", "Initializing visual bridge..."];
 
 // Throttling for Telegram
@@ -84,6 +85,7 @@ const masterUIInterval = setInterval(async () => {
         vncUrl: vncUrlGlobal,
         partCount: processedSegments.size,
         latestTranscript: isRecording ? latestTranscript : null,
+        participantName: activeParticipantName,
         timer: getTimerString(),
         logs: systemLogs
     });
@@ -282,12 +284,14 @@ function getWorkflowStepLog(percent) {
 
 async function run() {
     try {
-        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
+        const customDisplayName = process.env.DISPLAY_NAME || process.env.BOT_DISPLAY_NAME || null;
+        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl} (Custom Name: ${customDisplayName || 'Random Human'})`);
         progressStatus = 'DEPLOYING';
         targetProgress = 20;
 
-        const tunnel = await browserManager.launchMeeting(meetingUrl);
+        const tunnel = await browserManager.launchMeeting(meetingUrl, customDisplayName);
         vncUrlGlobal = tunnel.url;
+        activeParticipantName = tunnel.participantName;
 
         // Register active VNC tunnel URL with Telegram bot on Render
         const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
@@ -298,6 +302,7 @@ async function run() {
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'READY';
+        systemLogs.push(`Identity set: ${activeParticipantName}`);
         systemLogs.push("Visual engine online. Click START CAPTURE to record.");
         if (systemLogs.length > 3) systemLogs.shift();
 

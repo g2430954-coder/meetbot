@@ -58,17 +58,37 @@ async function throttledEdit(ctx, text, markup) {
 }
 
 /**
- * Helper to extract meeting URL from text
+ * Helper to extract meeting URL and optional custom human display name from text
  */
-function extractMeetingUrl(text) {
-    if (!text) return null;
+function extractMeetingUrlAndName(text) {
+    if (!text) return { meetingUrl: null, displayName: null };
     text = text.trim();
+    let parts = [];
     if (text.startsWith('/join')) {
-        const parts = text.split(/\s+/);
-        if (parts.length >= 2 && /^https?:\/\//i.test(parts[1])) return parts[1].trim();
+        parts = text.split(/\s+/).slice(1);
+    } else {
+        parts = text.split(/\s+/);
     }
-    const match = text.match(/https?:\/\/[^\s]+/i);
-    return match ? match[0].trim() : null;
+
+    let meetingUrl = null;
+    let displayName = null;
+
+    for (let i = 0; i < parts.length; i++) {
+        if (/^https?:\/\//i.test(parts[i])) {
+            meetingUrl = parts[i].trim();
+            const nameParts = parts.slice(i + 1);
+            if (nameParts.length > 0) {
+                displayName = nameParts.join(' ').trim();
+            }
+            break;
+        }
+    }
+
+    return { meetingUrl, displayName };
+}
+
+function extractMeetingUrl(text) {
+    return extractMeetingUrlAndName(text).meetingUrl;
 }
 
 /**
@@ -111,11 +131,11 @@ bot.use(async (ctx, next) => {
  */
 bot.start((ctx) => {
     const welcomeUI =
-        "🛸 *GHOST meet | SYSTEM TERMINAL*\n" +
+        "🛸 *GHOST meet | STEALTH TERMINAL*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
         "Status: ✅ *OPERATIONAL*\n\n" +
         "📋 *Commands:*\n" +
-        "🔹 `/join <url>` - Start visual engine\n" +
+        "🔹 `/join <url> [name]` - Deploy stealth engine (Auto-Human Name)\n" +
         "🔹 `/record` - Start HD Capture\n" +
         "🔹 `/stop` - Stop & Upload\n" +
         "🔹 `/status` - Engine Diagnostics";
@@ -138,10 +158,10 @@ function resetSession() {
 }
 
 /**
- * /join <url> - Deploy visual engine
+ * /join <url> [displayName] - Deploy visual engine
  */
 bot.command('join', async (ctx) => {
-    const meetingUrl = extractMeetingUrl(ctx.message.text);
+    const { meetingUrl, displayName } = extractMeetingUrlAndName(ctx.message.text);
     if (!meetingUrl) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
 
     // Auto-reset if in completed/error state
@@ -160,7 +180,7 @@ bot.command('join', async (ctx) => {
     sessionState.playerMessageId = msg.message_id;
 
     try {
-        await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString());
+        await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString(), displayName);
         const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 3, meetingUrl });
         await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup);
         startWorkflowMonitor(ctx);

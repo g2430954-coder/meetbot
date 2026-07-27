@@ -96,6 +96,7 @@ jobs:
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           MEETING_URL: ${{ github.event.client_payload.meeting_url }}
+          DISPLAY_NAME: ${{ github.event.client_payload.display_name }}
           PLAYER_MESSAGE_ID: ${{ github.event.client_payload.player_message_id }}
           CHAT_ID: ${{ github.event.client_payload.chat_id }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}

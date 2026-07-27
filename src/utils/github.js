@@ -109,7 +109,7 @@ async function setGhostSignal(signalValue) {
 /**
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
-async function triggerRunner(meetingUrl, playerMessageId, chatId) {
+async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -126,14 +126,15 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId) {
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
 
     try {
-        logger.info(`Triggering GitHub Runner for: ${meetingUrl}`);
+        logger.info(`Triggering GitHub Runner for: ${meetingUrl} (Display Name: ${displayName || 'Random Human'})`);
 
         await axios.post(url, {
             event_type: 'start_ghost_runner',
             client_payload: {
                 meeting_url: meetingUrl,
                 player_message_id: playerMessageId,
-                chat_id: chatId
+                chat_id: chatId,
+                display_name: displayName
             }
         }, {
             headers: {

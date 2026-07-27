@@ -12,7 +12,7 @@ git add .
 
 # 3. Commit
 echo "💾 Locking kernel updates..."
-git commit -m "UI Upgrade and Zero-Wait Flow"
+git commit -m "Upgrade Anti-Ban Stealth & Realistic Human Identity Engine"
 
 # 4. Push
 echo "📡 Pushing to GitHub (If asked for password, use your PAT Token)..."

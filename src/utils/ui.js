@@ -25,6 +25,7 @@ function generatePlayerUI(params) {
         progress,
         stepLog,
         latestTranscript,
+        participantName,
         logs = [] // Array of last 3-5 log entries
     } = params;
 
@@ -36,6 +37,9 @@ function generatePlayerUI(params) {
 
     // 2. STATUS & TELEMETRY BLOCK
     uiText += `📍 STATUS: *${status}* ${icon}\n`;
+    if (participantName) {
+        uiText += `👤 PARTICIPANT: \`${participantName}\` (Human Identity)\n`;
+    }
     if (timer) {
         uiText += `⏱ UPTIME: \`${timer}\`\n`;
     }
