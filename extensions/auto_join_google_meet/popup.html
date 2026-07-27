@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      width: 250px;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      padding: 14px;
+    }
+    h3 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: #00ffaa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #00ffaa;
+      cursor: pointer;
+    }
+    .footer {
+      margin-top: 12px;
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h3>🚀 Auto Join Google Meet</h3>
+  <div class="toggle-row">
+    <span>Auto Click Join / Ask</span>
+    <input type="checkbox" id="autoJoin" checked>
+  </div>
+  <div class="toggle-row">
+    <span>Auto Mute Mic</span>
+    <input type="checkbox" id="autoMuteMic" checked>
+  </div>
+  <div class="toggle-row">
+    <span>Auto Mute Camera</span>
+    <input type="checkbox" id="autoMuteCam" checked>
+  </div>
+  <div class="toggle-row">
+    <span>Auto Dismiss Popups</span>
+    <input type="checkbox" id="autoDismissPopups" checked>
+  </div>
+  <div class="footer">GHOST-meet Pre-Installed Extension</div>
+  <script src="popup.js"></script>
+</body>
+</html>

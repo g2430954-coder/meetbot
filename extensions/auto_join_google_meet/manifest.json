@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Auto Join for Google Meet",
+  "version": "1.0.0",
+  "description": "Automatically mutes microphone/camera and clicks Join/Ask to Join in Google Meet sessions instantly.",
+  "permissions": [
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://meet.google.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Auto Join for Google Meet"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://meet.google.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_end"
+    }
+  ]
+}

@@ -322,7 +322,15 @@ async function launchMeeting(url, customDisplayName = null) {
             tunnelUrl = "http://localhost:6080";
         }
 
-        const candidatePaths = [
+        const braveCandidatePaths = [
+            process.env.BRAVE_PATH,
+            '/usr/bin/brave-browser',
+            '/usr/bin/brave',
+            '/opt/brave.com/brave/brave-browser',
+            '/snap/bin/brave'
+        ];
+
+        const chromeCandidatePaths = [
             process.env.CHROME_PATH,
             '/usr/bin/google-chrome-stable',
             '/usr/bin/google-chrome',
@@ -330,8 +338,21 @@ async function launchMeeting(url, customDisplayName = null) {
             '/usr/bin/chromium-browser',
             '/usr/bin/chromium'
         ];
-        const chromePath = candidatePaths.find(p => p && fs.existsSync(p)) || '/usr/bin/google-chrome-stable';
-        logger.info(`Using Official Google Chrome binary: ${chromePath}`);
+
+        let browserPath = null;
+        if (process.env.BROWSER_TYPE === 'brave' || process.env.BRAVE_PATH) {
+            browserPath = braveCandidatePaths.find(p => p && fs.existsSync(p));
+        }
+
+        if (!browserPath) {
+            const allCandidates = [
+                ...braveCandidatePaths,
+                ...chromeCandidatePaths
+            ];
+            browserPath = allCandidates.find(p => p && fs.existsSync(p)) || '/usr/bin/google-chrome-stable';
+        }
+
+        logger.info(`Using Browser binary: ${browserPath}`);
 
         const userDataDir = path.join(__dirname, '../../output/chrome_profile');
         fs.ensureDirSync(userDataDir);
@@ -348,10 +369,10 @@ async function launchMeeting(url, customDisplayName = null) {
             logger.info("No Chrome extensions found in extensions/ folder or CHROME_EXTENSIONS env var. Extension engine ready.");
         }
 
-        logger.info(`Launching Official Google Chrome Engine on DISPLAY :99 for URL: ${url}`);
+        logger.info(`Launching Browser Engine (${browserPath}) on DISPLAY :99 for URL: ${url}`);
         browser = await puppeteer.launch({
             headless: false,
-            executablePath: chromePath,
+            executablePath: browserPath,
             args: [
                 `--user-data-dir=${userDataDir}`,
                 '--no-sandbox',
