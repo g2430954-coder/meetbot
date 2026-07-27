@@ -322,6 +322,13 @@ async function launchMeeting(url, customDisplayName = null) {
             tunnelUrl = "http://localhost:6080";
         }
 
+        const firefoxCandidatePaths = [
+            process.env.FIREFOX_PATH,
+            '/usr/bin/firefox',
+            '/usr/bin/firefox-esr',
+            '/snap/bin/firefox'
+        ];
+
         const braveCandidatePaths = [
             process.env.BRAVE_PATH,
             '/usr/bin/brave-browser',
@@ -340,14 +347,19 @@ async function launchMeeting(url, customDisplayName = null) {
         ];
 
         let browserPath = null;
-        if (process.env.BROWSER_TYPE === 'brave' || process.env.BRAVE_PATH) {
+        const requestedBrowser = (process.env.BROWSER_TYPE || '').toLowerCase();
+
+        if (requestedBrowser === 'firefox' || process.env.FIREFOX_PATH) {
+            browserPath = firefoxCandidatePaths.find(p => p && fs.existsSync(p));
+        } else if (requestedBrowser === 'brave' || process.env.BRAVE_PATH) {
             browserPath = braveCandidatePaths.find(p => p && fs.existsSync(p));
         }
 
         if (!browserPath) {
             const allCandidates = [
+                ...chromeCandidatePaths,
                 ...braveCandidatePaths,
-                ...chromeCandidatePaths
+                ...firefoxCandidatePaths
             ];
             browserPath = allCandidates.find(p => p && fs.existsSync(p)) || '/usr/bin/google-chrome-stable';
         }
@@ -361,8 +373,7 @@ async function launchMeeting(url, customDisplayName = null) {
         const extensionFlags = [];
         if (extPaths.length > 0) {
             const joinedPaths = extPaths.join(',');
-            logger.info(`Loading ${extPaths.length} Chrome extension(s) in Official Chrome: ${joinedPaths}`);
-            // Note: Do NOT use --disable-extensions-except as it disables Chrome Web Store extension installation
+            logger.info(`Loading ${extPaths.length} Chrome extension(s) in Browser: ${joinedPaths}`);
             extensionFlags.push(`--load-extension=${joinedPaths}`);
             extensionFlags.push('--enable-extension-assets-sharing');
         } else {
@@ -370,9 +381,14 @@ async function launchMeeting(url, customDisplayName = null) {
         }
 
         logger.info(`Launching Browser Engine (${browserPath}) on DISPLAY :99 for URL: ${url}`);
-        browser = await puppeteer.launch({
+        
+        const launchOptions = {
             headless: false,
             executablePath: browserPath,
+            ignoreDefaultArgs: [
+                '--disable-component-extensions-with-background-pages',
+                '--disable-default-apps'
+            ],
             args: [
                 `--user-data-dir=${userDataDir}`,
                 '--no-sandbox',
@@ -399,7 +415,8 @@ async function launchMeeting(url, customDisplayName = null) {
                 '--disable-background-timer-throttling',
                 '--disable-backgrounding-occluded-windows',
                 '--disable-renderer-backgrounding',
-                // ULTIMATE STEALTH & Extension Installation Enabled
+                // ULTIMATE STEALTH & Chrome Web Store Component Extensions Enabled
+                '--enable-extension-activity-logging',
                 '--disable-blink-features=AutomationControlled',
                 '--disable-features=IsolateOrigins,site-per-process,EnablePasswordGeneration,TouchpadOverscrollHistoryNavigation',
                 '--allow-running-insecure-content',
@@ -410,8 +427,13 @@ async function launchMeeting(url, customDisplayName = null) {
                 ...extensionFlags
             ],
             defaultViewport: null
-        });
+        };
 
+        if (browserPath.includes('firefox')) {
+            launchOptions.product = 'firefox';
+        }
+
+        browser = await puppeteer.launch(launchOptions);
         page = await browser.newPage();
 
         // Advanced Anti-Detection & WebRTC Spoofing on Document Load
@@ -490,11 +512,49 @@ async function closeBrowser() {
     exec('pkill Xvfb');
 }
 
+/**
+ * Downloads and installs any Chrome Web Store extension automatically by URL or Extension ID
+ */
+async function installExtensionFromUrl(inputUrlOrId) {
+    const axios = require('axios');
+    try {
+        let extId = inputUrlOrId.trim();
+        const match = extId.match(/\/detail\/[^\/]+\/([a-z0-9]+)/i) || extId.match(/([a-z]{32})/i);
+        if (match) extId = match[1];
+
+        if (!extId || extId.length < 24) {
+            throw new Error("Invalid Extension ID or Web Store URL.");
+        }
+
+        logger.info(`Auto-downloading Chrome Extension ID: ${extId}...`);
+        const crxUrl = `https://clients2.google.com/service/update2/crx?response=redirect&os=linux&arch=x64&os_arch=x86_64&nacl_arch=x86-64&prod=chromecrx&prodchannel=unknown&prodversion=126.0.0.0&acceptformat=crx2,crx3&x=id%3D${extId}%26uc`;
+
+        const targetDir = path.join(__dirname, '../../extensions', `ext_${extId}`);
+        const zipPath = path.join(__dirname, '../../extensions', `${extId}.crx`);
+
+        const response = await axios.get(crxUrl, { responseType: 'arraybuffer' });
+        await fs.writeFile(zipPath, response.data);
+
+        await fs.ensureDir(targetDir);
+        const { execSync } = require('child_process');
+        execSync(`unzip -o "${zipPath}" -d "${targetDir}" 2>/dev/null || true`);
+        await fs.remove(zipPath).catch(() => {});
+
+        logger.info(`✅ Successfully downloaded & unpacked Chrome Extension ${extId} into extensions/!`);
+        return true;
+    } catch (e) {
+        logger.error(`Extension Download Error: ${e.message}`);
+        return false;
+    }
+}
+
 module.exports = {
     launchMeeting,
     takeScreenshot,
     closeBrowser,
+    installExtensionFromUrl,
     getPage: () => page,
     getActiveParticipantName: () => activeParticipantName,
     getRandomHumanName
 };
+
