@@ -242,29 +242,29 @@ async function joinGoogleMeet(page, customDisplayName) {
     return participantName;
 }
 
-/**
- * Background watcher to auto-handle host denials, popups, or kicks
- */
 function startAntiKickWatcher(page) {
     setInterval(async () => {
         try {
             if (!page || page.isClosed()) return;
 
-            const pageText = await page.evaluate(() => document.body ? document.body.innerText || '' : '');
-            if (pageText.includes("Someone in the call denied your request") || pageText.includes("You can't join this call")) {
+            const isDenied = await page.evaluate(() => {
+                const text = document.body ? document.body.innerText || '' : '';
+                // Dismiss "Got it" or "Dismiss" popups inside call efficiently
+                const buttons = document.querySelectorAll('button');
+                for (let i = 0; i < buttons.length; i++) {
+                    const btnText = (buttons[i].textContent || '').trim().toLowerCase();
+                    if (btnText === 'got it' || btnText === 'dismiss') {
+                        buttons[i].click();
+                    }
+                }
+                return text.includes("Someone in the call denied your request") || text.includes("You can't join this call");
+            }).catch(() => false);
+
+            if (isDenied) {
                 logger.warn("Join request denied by meeting host. Retrying automatically with fresh human identity...");
                 const newName = getRandomHumanName();
                 await page.reload({ waitUntil: 'networkidle2' }).catch(() => {});
                 await joinGoogleMeet(page, newName).catch(() => {});
-            }
-
-            // Dismiss "Got it" inside call
-            const buttons = await page.$$('button');
-            for (const btn of buttons) {
-                const text = await page.evaluate(el => el.textContent || '', btn);
-                if (text.match(/^got it$/i) || text.match(/^dismiss$/i)) {
-                    await btn.click().catch(() => {});
-                }
             }
         } catch (e) {}
     }, 15000);
@@ -341,7 +341,7 @@ async function launchMeeting(url, customDisplayName = null) {
         if (extPaths.length > 0) {
             const joinedPaths = extPaths.join(',');
             logger.info(`Loading ${extPaths.length} Chrome extension(s) in Official Chrome: ${joinedPaths}`);
-            extensionFlags.push(`--disable-extensions-except=${joinedPaths}`);
+            // Note: Do NOT use --disable-extensions-except as it disables Chrome Web Store extension installation
             extensionFlags.push(`--load-extension=${joinedPaths}`);
             extensionFlags.push('--enable-extension-assets-sharing');
         } else {
@@ -368,16 +368,24 @@ async function launchMeeting(url, customDisplayName = null) {
                 '--display=:99',
                 '--force-device-scale-factor=1',
                 '--high-dpi-support=1',
-                // ULTIMATE STEALTH: Bypass Anti-Bot & Fingerprinting
+                // GPU Acceleration & Maximum Performance for Smoothness
+                '--enable-gpu-rasterization',
+                '--enable-zero-copy',
+                '--ignore-gpu-blocklist',
+                '--use-gl=swiftshader',
+                '--num-raster-threads=4',
+                '--accelerated-2d-canvas=true',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-renderer-backgrounding',
+                // ULTIMATE STEALTH & Extension Installation Enabled
                 '--disable-blink-features=AutomationControlled',
                 '--disable-features=IsolateOrigins,site-per-process,EnablePasswordGeneration,TouchpadOverscrollHistoryNavigation',
-                '--disable-web-security',
                 '--allow-running-insecure-content',
                 '--no-first-run',
                 '--no-default-browser-check',
-                '--disable-site-isolation-trials',
                 '--disable-dev-shm-usage',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+                '--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
                 ...extensionFlags
             ],
             defaultViewport: null
@@ -391,19 +399,19 @@ async function launchMeeting(url, customDisplayName = null) {
             Object.defineProperty(navigator, 'webdriver', { get: () => false });
             try { delete navigator.__proto__.webdriver; } catch (e) {}
 
-            // 2. Chrome runtime mock
-            window.chrome = {
-                runtime: {
-                    connect: () => {},
-                    sendMessage: () => {},
-                    onMessage: { addListener: () => {} }
-                },
-                loadTimes: () => {},
-                csi: () => {},
-                app: {}
-            };
+            // 2. Chrome runtime & webstore compatibility (Preserve native window.chrome & webstore)
+            if (typeof window.chrome === 'undefined') {
+                window.chrome = {};
+            }
+            if (!window.chrome.app) {
+                window.chrome.app = {
+                    isInstalled: false,
+                    InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+                    RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }
+                };
+            }
 
-            // 3. Languages, Platform & Hardware info
+            // 3. Languages, Platform & Hardware info (Consistent with Linux UA)
             Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en', 'hi'] });
             Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
             Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });
