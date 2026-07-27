@@ -48,7 +48,8 @@ function getExtensionPaths() {
             if (!fs.existsSync(targetDir)) {
                 logger.info(`Auto-extracting Chrome Extension archive: ${zipFile}...`);
                 try {
-                    exec(`unzip -o "${zipPath}" -d "${targetDir}" 2>/dev/null || true`);
+                    const { execSync } = require('child_process');
+                    execSync(`unzip -o "${zipPath}" -d "${targetDir}" 2>/dev/null || true`);
                 } catch (e) {}
             }
         }
