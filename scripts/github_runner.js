@@ -131,14 +131,26 @@ async function getGhostSignal() {
     }
 }
 
+async function getBotHostSignal() {
+    try {
+        const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
+        const res = await axios.get(`${botHost}/get_signal`, { timeout: 2500 });
+        return res.data ? res.data.signal : null;
+    } catch (e) {
+        return null;
+    }
+}
+
 async function checkRecordSignal() {
-    const sig = await getGhostSignal();
-    return sig === 'RECORD';
+    const sig1 = await getGhostSignal();
+    const sig2 = await getBotHostSignal();
+    return sig1 === 'RECORD' || sig2 === 'RECORD';
 }
 
 async function checkStopSignal() {
-    const sig = await getGhostSignal();
-    return sig === 'STOP';
+    const sig1 = await getGhostSignal();
+    const sig2 = await getBotHostSignal();
+    return sig1 === 'STOP' || sig2 === 'STOP';
 }
 
 async function processLatestSegments() {

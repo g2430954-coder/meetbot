@@ -12,6 +12,8 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ALLOWED_GROUP_ID = process.env.ALLOWED_GROUP_ID;
 
 // Global session state
+let activeSignal = 'NONE';
+
 const sessionState = {
     isJoined: false,
     isRecording: false,
@@ -150,6 +152,7 @@ bot.start((ctx) => {
  * Resets the session state for a fresh start
  */
 function resetSession() {
+    activeSignal = 'NONE';
     sessionState.isJoined = false;
     sessionState.isRecording = false;
     sessionState.currentUrl = null;
@@ -198,6 +201,7 @@ async function handleRecord(ctx) {
     if (sessionState.isRecording) return;
 
     sessionState.isRecording = true;
+    activeSignal = 'RECORD';
 
     const startingUI = ui.generatePlayerUI({
         status: 'RECORDING',
@@ -235,6 +239,7 @@ bot.action('cmd_record', async (ctx) => {
  */
 async function handleStop(ctx) {
     sessionState.isRecording = false;
+    activeSignal = 'STOP';
 
     const stoppingUI = ui.generatePlayerUI({
         status: 'FINALIZING',
@@ -328,6 +333,11 @@ const app = express();
 app.get('/', (req, res) => res.status(200).send('GHOST meet Engine Active'));
 app.get('/ping', (req, res) => res.status(200).json({ status: 'active', message: 'PONG', timestamp: new Date().toISOString() }));
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime(), session: sessionState.isJoined ? 'CONNECTED' : 'IDLE' }));
+app.get('/get_signal', (req, res) => res.json({ status: 'ok', signal: activeSignal }));
+app.get('/set_signal', (req, res) => {
+    if (req.query.signal) activeSignal = req.query.signal;
+    res.json({ status: 'ok', signal: activeSignal });
+});
 app.get('/register_vnc', (req, res) => {
     const { vncUrl } = req.query;
     if (vncUrl) {
