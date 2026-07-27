@@ -1,23 +1,25 @@
-# Chrome Extensions Directory
+# 🧩 GHOST-meet | Chrome Extension Support
 
-Place your unpacked Chrome extensions into this directory to automatically load them when GHOST-meet launches the browser.
+GHOST-meet is powered by **Official Google Chrome Stable** and supports full Chrome Extensions!
 
-## How to add an extension:
+## How to add Chrome Extensions:
 
-1. **Unpacked Extension Folder**:
-   Extract/unzip your extension into a folder inside `extensions/`, so that `manifest.json` is located inside the extension folder:
-   ```
-   extensions/
-   └── my-extension/
-       ├── manifest.json
-       ├── content.js
-       └── background.js
-   ```
+### Method 1: Drop `.zip` or `.crx` Files
+Simply copy your Chrome extension `.zip` or `.crx` file into this `extensions/` directory (e.g. `extensions/my_extension.zip`).
+The engine will **automatically extract and load** the extension when Chrome launches!
 
-2. **Environment Variable (Optional)**:
-   You can also specify external extension folder paths in your `.env` file using `CHROME_EXTENSIONS`:
-   ```env
-   CHROME_EXTENSIONS=/path/to/extension1,/path/to/extension2
-   ```
+### Method 2: Unpacked Extension Folder
+Copy the unpacked extension folder directly into `extensions/` (so that `extensions/my_extension/manifest.json` exists).
 
-Any extension placed in `extensions/` or specified in `CHROME_EXTENSIONS` will be automatically detected and loaded into Chrome when starting a meeting.
+### Method 3: Environment Variable
+You can specify custom extension directory paths using the `CHROME_EXTENSIONS` environment variable:
+```env
+CHROME_EXTENSIONS=/path/to/extension1,/path/to/extension2
+```
+
+---
+
+## Chrome Extensions Compatibility
+- ✅ All Chrome Extensions (uBlock Origin, Chrome Web Store extensions, custom MV2 & MV3 extensions) are supported.
+- ✅ Chrome user data and extension storage are persisted in `output/chrome_profile`.
+- ✅ Access extension popups and settings via the live RDP VNC dashboard!

@@ -47,11 +47,15 @@ jobs:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-v2
 
-      - name: Install System Dependencies
+      - name: Install System Dependencies & Real Google Chrome
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            xvfb pulseaudio dbus-x11 x11vnc novnc ffmpeg
+            xvfb pulseaudio dbus-x11 x11vnc novnc ffmpeg wget unzip
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add - || true
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq google-chrome-stable || true
 
       - name: Fast Node Install
         run: npm install --no-audit --no-fund --quiet --prefer-offline

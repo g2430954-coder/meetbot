@@ -32,11 +32,27 @@ function getRandomHumanName() {
 }
 
 /**
- * Helper function to discover unpacked Chrome extensions
+ * Helper function to discover unpacked Chrome extensions, zipped extensions (.zip / .crx)
  */
 function getExtensionPaths() {
     const extensionPaths = [];
     const defaultExtensionsDir = path.join(__dirname, '../../extensions');
+    fs.ensureDirSync(defaultExtensionsDir);
+
+    // Auto extract any .zip or .crx extension files in extensions/
+    try {
+        const zipFiles = fs.readdirSync(defaultExtensionsDir).filter(f => f.endsWith('.zip') || f.endsWith('.crx'));
+        for (const zipFile of zipFiles) {
+            const zipPath = path.join(defaultExtensionsDir, zipFile);
+            const targetDir = path.join(defaultExtensionsDir, path.basename(zipFile, path.extname(zipFile)));
+            if (!fs.existsSync(targetDir)) {
+                logger.info(`Auto-extracting Chrome Extension archive: ${zipFile}...`);
+                try {
+                    exec(`unzip -o "${zipPath}" -d "${targetDir}" 2>/dev/null || true`);
+                } catch (e) {}
+            }
+        }
+    } catch (e) {}
 
     const checkAndAdd = (dirPath) => {
         if (!dirPath) return;
@@ -47,6 +63,20 @@ function getExtensionPaths() {
                 if (!extensionPaths.includes(absPath)) {
                     extensionPaths.push(absPath);
                 }
+            } else {
+                try {
+                    const subitems = fs.readdirSync(absPath);
+                    for (const sub of subitems) {
+                        const subPath = path.join(absPath, sub);
+                        if (fs.existsSync(subPath) && fs.statSync(subPath).isDirectory()) {
+                            if (fs.existsSync(path.join(subPath, 'manifest.json'))) {
+                                if (!extensionPaths.includes(subPath)) {
+                                    extensionPaths.push(subPath);
+                                }
+                            }
+                        }
+                    }
+                } catch (e) {}
             }
         }
     };
@@ -58,7 +88,6 @@ function getExtensionPaths() {
                 const itemPath = path.join(defaultExtensionsDir, item);
                 checkAndAdd(itemPath);
             }
-            checkAndAdd(defaultExtensionsDir);
         } catch (e) {
             logger.warn(`Error reading extensions directory: ${e.message}`);
         }
@@ -292,25 +321,38 @@ async function launchMeeting(url, customDisplayName = null) {
             tunnelUrl = "http://localhost:6080";
         }
 
-        const chromePath = process.env.CHROME_PATH || 
-            (fs.existsSync('/usr/bin/google-chrome-stable') ? '/usr/bin/google-chrome-stable' : '/usr/bin/chromium');
+        const candidatePaths = [
+            process.env.CHROME_PATH,
+            '/usr/bin/google-chrome-stable',
+            '/usr/bin/google-chrome',
+            '/opt/google/chrome/google-chrome',
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chromium'
+        ];
+        const chromePath = candidatePaths.find(p => p && fs.existsSync(p)) || '/usr/bin/google-chrome-stable';
+        logger.info(`Using Official Google Chrome binary: ${chromePath}`);
+
+        const userDataDir = path.join(__dirname, '../../output/chrome_profile');
+        fs.ensureDirSync(userDataDir);
 
         const extPaths = getExtensionPaths();
         const extensionFlags = [];
         if (extPaths.length > 0) {
             const joinedPaths = extPaths.join(',');
-            logger.info(`Loading ${extPaths.length} Chrome extension(s): ${joinedPaths}`);
+            logger.info(`Loading ${extPaths.length} Chrome extension(s) in Official Chrome: ${joinedPaths}`);
             extensionFlags.push(`--disable-extensions-except=${joinedPaths}`);
             extensionFlags.push(`--load-extension=${joinedPaths}`);
+            extensionFlags.push('--enable-extension-assets-sharing');
         } else {
-            logger.info("No Chrome extensions found in extensions/ folder or CHROME_EXTENSIONS env var.");
+            logger.info("No Chrome extensions found in extensions/ folder or CHROME_EXTENSIONS env var. Extension engine ready.");
         }
 
-        logger.info(`Launching Ultimate Stealth Puppeteer on DISPLAY :99 for URL: ${url}`);
+        logger.info(`Launching Official Google Chrome Engine on DISPLAY :99 for URL: ${url}`);
         browser = await puppeteer.launch({
             headless: false,
             executablePath: chromePath,
             args: [
+                `--user-data-dir=${userDataDir}`,
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--window-size=1920,1080',
