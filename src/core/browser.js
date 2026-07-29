@@ -282,6 +282,25 @@ async function launchMeeting(url, customDisplayName = null) {
         // 1. Setup Serveo Tunnel (Unlimited & No IP check)
         logger.info("Establishing Serveo Unlimited Tunnel...");
         try {
+            // WAIT FOR LOCAL CONTROL BRIDGE (Port 6080) TO BE ACTIVE ON GITHUB RUNNER
+            // This prevents the 502 Bad Gateway error.
+            if (process.env.GITHUB_ACTIONS) {
+                logger.info("GitHub Action detected: Waiting for Express Control Bridge to sync...");
+                const axios = require('axios');
+                let bridgeReady = false;
+                for (let i = 0; i < 15; i++) {
+                    try {
+                        const res = await axios.get('http://127.0.0.1:6080/bridge_health', { timeout: 1000 });
+                        if (res.data && res.data.status === 'active') {
+                            bridgeReady = true;
+                            break;
+                        }
+                    } catch (e) {}
+                    await new Promise(r => setTimeout(r, 1000));
+                }
+                if (!bridgeReady) logger.warn("Express Control Bridge did not respond. Tunneling may fail with 502.");
+            }
+
             tunnelInstance = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', '80:localhost:6080', 'serveo.net'], {
                 detached: false
             });

@@ -65,9 +65,6 @@ setInterval(() => {
     }
 }, 100);
 
-/**
- * Helper to parse time strings (HH:mm) into Date objects for today
- */
 function parseTimeToToday(timeStr) {
     if (!timeStr) return null;
     const [hours, minutes] = timeStr.split(':').map(Number);
@@ -76,9 +73,6 @@ function parseTimeToToday(timeStr) {
     return date;
 }
 
-/**
- * Helper to format duration in seconds into MM:SS
- */
 function formatTime(seconds) {
     const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
     const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
@@ -94,13 +88,11 @@ function getCountdownString() {
         const diff = Math.floor((startTime - now) / 1000);
         return formatTime(diff);
     }
-
     if (endTime && isRecording) {
         const diff = Math.floor((endTime - now) / 1000);
         if (diff > 0) return formatTime(diff);
         return `00:00`;
     }
-
     return null;
 }
 
@@ -110,7 +102,6 @@ function getSessionUptime() {
 }
 
 function getWorkflowExpiry() {
-    // 360 minutes timeout from meet.yml
     const maxSeconds = 360 * 60;
     const elapsed = Math.floor((Date.now() - runnerStartTime) / 1000);
     const remaining = Math.max(0, maxSeconds - elapsed);
@@ -157,11 +148,6 @@ const masterUIInterval = setInterval(async () => {
         });
     } catch (e) {
         if (e.description && e.description.includes("message is not modified")) return;
-        if (e.description && e.description.includes("Too Many Requests")) {
-            const waitSec = (parseInt(e.description.match(/\d+/)?.[0]) || 5) + 1;
-            lastUIUpdate = Date.now() + (waitSec * 1000);
-            return;
-        }
     }
 }, 1000);
 
@@ -169,18 +155,6 @@ function getTimerString() {
     if (!recordingStartTime || !isRecording) return null;
     const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
     return formatTime(elapsed);
-}
-
-async function checkRecordSignal() {
-    const sig1 = await getGhostSignal();
-    const sig2 = await getBotHostSignal();
-    return sig1 === 'RECORD' || sig2 === 'RECORD';
-}
-
-async function checkStopSignal() {
-    const sig1 = await getGhostSignal();
-    const sig2 = await getBotHostSignal();
-    return sig1 === 'STOP' || sig2 === 'STOP';
 }
 
 async function getGhostSignal() {
@@ -203,6 +177,18 @@ async function getBotHostSignal() {
         const res = await axios.get(`${botHost}/get_signal`, { timeout: 2500 });
         return res.data ? res.data.signal : null;
     } catch (e) { return null; }
+}
+
+async function checkRecordSignal() {
+    const sig1 = await getGhostSignal();
+    const sig2 = await getBotHostSignal();
+    return sig1 === 'RECORD' || sig2 === 'RECORD';
+}
+
+async function checkStopSignal() {
+    const sig1 = await getGhostSignal();
+    const sig2 = await getBotHostSignal();
+    return sig1 === 'STOP' || sig2 === 'STOP';
 }
 
 async function processLatestSegments() {
@@ -229,19 +215,13 @@ async function processLatestSegments() {
     }
 }
 
-/**
- * SCHEDULE MANAGER
- */
 const backgroundTaskInterval = setInterval(async () => {
     const now = new Date();
     const startTime = parseTimeToToday(scheduledStart);
     const endTime = parseTimeToToday(scheduledEnd);
-
     if (isRecording) {
         const shouldStop = await checkStopSignal();
-        // AUTO-STOP check
         const isPastEndTime = endTime && now >= endTime;
-
         if (shouldStop || isPastEndTime) {
             if (isPastEndTime) systemLogs.push("Auto-Stop: Schedule completed.");
             await finalizeAndUpload(vncUrlGlobal);
@@ -250,9 +230,7 @@ const backgroundTaskInterval = setInterval(async () => {
         }
     } else {
         const recordSignal = await checkRecordSignal();
-        // AUTO-START check
         const isStartTimeReached = startTime && now >= startTime;
-
         if (recordSignal || isStartTimeReached) {
             if (isStartTimeReached) systemLogs.push("Auto-Start: Schedule reached.");
             await triggerStartRecording();
@@ -268,7 +246,7 @@ async function triggerStartRecording() {
         recordingStartTime = Date.now();
         isRecording = true;
         progressStatus = 'RECORDING';
-        systemLogs.push("Manual Override: Starting capture...");
+        systemLogs.push("Signal received: Recording started.");
         if (systemLogs.length > 3) systemLogs.shift();
     }
 }
@@ -276,57 +254,40 @@ async function triggerStartRecording() {
 async function finalizeAndUpload(vncUrl) {
     const wasRecording = isRecording;
     isRecording = false;
-
     try {
         progressStatus = 'FINALIZING';
         targetProgress = 40;
-        systemLogs.push(wasRecording ? "Stopping capture, finalizing segments..." : "Stopping session...");
+        systemLogs.push(wasRecording ? "Stopping capture..." : "Stopping session...");
         if (systemLogs.length > 3) systemLogs.shift();
-
         if (wasRecording) await recorder.stopRecording();
-
         const allFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
         for (const file of allFiles) {
             if (!processedSegments.has(file)) {
                 processedSegments.add(file);
                 const filePath = path.join(chunksDir, file);
                 targetProgress = Math.min(95, targetProgress + 10);
-                systemLogs.push(`Processing final part ${processedSegments.size}...`);
+                systemLogs.push(`Uploading final part ${processedSegments.size}...`);
                 if (systemLogs.length > 3) systemLogs.shift();
-                const audioPath = path.join(outputDir, `${file}.wav`);
-                const audioExtracted = await recorder.extractAudio(filePath, audioPath);
-                if (audioExtracted) {
-                    const transcriptPath = await transcriber.transcribe(audioPath);
-                    if (transcriptPath && fs.existsSync(transcriptPath)) {
-                        const text = fs.readFileSync(transcriptPath, 'utf8');
-                        const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
-                        if (cleanText) fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
-                    }
-                }
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size}`
                 }).catch(() => {});
             }
         }
-
         if (fs.existsSync(masterTranscriptPath)) {
             await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(masterTranscriptPath), filename: 'GHOST_meet_Full_Transcript.txt' }, {
                 caption: "📜 *Full AI Meeting Transcript File*", parse_mode: 'Markdown'
             }).catch(() => {});
         }
-
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'COMPLETED';
         systemLogs.push("All assets secured. Engine hibernated.");
         if (systemLogs.length > 3) systemLogs.shift();
-
         setTimeout(() => {
             clearInterval(masterUIInterval);
             clearInterval(backgroundTaskInterval);
             process.exit(0);
         }, 10000);
-
     } catch (err) {
         console.error("Finalize Error:", err);
         process.exit(1);
@@ -344,7 +305,79 @@ function getWorkflowStepLog(percent) {
 async function run() {
     try {
         const customDisplayName = process.env.DISPLAY_NAME || null;
-        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
+        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl} (Custom Name: ${customDisplayName || 'Random Human'})`);
+
+        // 1. START CONTROL BRIDGE IMMEDIATELY (Fixes 502 Bad Gateway)
+        const http = require('http');
+        const expressApp = express();
+        expressApp.get('/bridge_health', (req, res) => res.json({ status: 'active', timestamp: Date.now() }));
+        expressApp.get('/record', async (req, res) => {
+            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: START RECORDING!");
+            systemLogs.push("Signal received: Recording engaged.");
+            if (systemLogs.length > 3) systemLogs.shift();
+            await triggerStartRecording();
+            res.json({ status: 'recording', success: true });
+        });
+        expressApp.get('/stop', async (req, res) => {
+            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: STOP RECORDING!");
+            systemLogs.push("Signal received: Session termination.");
+            if (systemLogs.length > 3) systemLogs.shift();
+            res.json({ status: 'finalizing', success: true });
+            await finalizeAndUpload(vncUrlGlobal);
+        });
+        expressApp.get('/status', (req, res) => res.json({ isRecording, progressStatus }));
+        expressApp.get(['/vnc.html', '/vnc_lite.html'], (req, res) => {
+            const proxyReq = http.request({ host: '127.0.0.1', port: 6081, path: req.url, method: 'GET', headers: req.headers }, (proxyRes) => {
+                let body = '';
+                proxyRes.setEncoding('utf8');
+                proxyRes.on('data', (chunk) => body += chunk);
+                proxyRes.on('end', () => {
+                    const mobileOverlayHTML = `
+<style>
+  #ghost-mobile-control-bar { position: fixed; top: 12px; right: 12px; z-index: 999999; display: flex; align-items: center; gap: 6px; background: rgba(10, 15, 25, 0.88); backdrop-filter: blur(12px); border: 1px solid rgba(0, 255, 170, 0.4); border-radius: 30px; padding: 6px 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); touch-action: manipulation; font-family: sans-serif; transition: all 0.3s ease; }
+  #ghost-mobile-control-bar.collapsed .ghost-btn-full { display: none !important; }
+  .ghost-mob-btn { background: linear-gradient(135deg, #00ffaa, #00bfff); color: #000; border: none; border-radius: 20px; font-size: 12px; font-weight: 800; padding: 6px 10px; cursor: pointer; }
+  .ghost-mob-btn-icon { background: rgba(255, 255, 255, 0.15); color: #00ffaa; border: 1px solid rgba(0, 255, 170, 0.4); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
+</style>
+<div id="ghost-mobile-control-bar">
+  <button class="ghost-mob-btn-icon" id="ghost-toggle-bar">⚙️</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍+</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍-</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️</button>
+</div>
+<script>
+  const bar = document.getElementById('ghost-mobile-control-bar');
+  document.getElementById('ghost-toggle-bar').onclick = () => bar.classList.toggle('collapsed');
+</script>`;
+                    const modifiedBody = body.includes('</body>') ? body.replace('</body>', mobileOverlayHTML + '</body>') : body + mobileOverlayHTML;
+                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                    res.end(modifiedBody);
+                });
+            });
+            proxyReq.on('error', () => res.status(502).send("Bridge Syncing..."));
+            proxyReq.end();
+        });
+        expressApp.use((req, res) => {
+            const proxyReq = http.request({ host: '127.0.0.1', port: 6081, path: req.url, method: req.method, headers: req.headers }, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                proxyRes.pipe(res, { end: true });
+            });
+            proxyReq.on('error', () => res.status(502).send("Bridge Syncing..."));
+            req.pipe(proxyReq, { end: true });
+        });
+        const controlServer = expressApp.listen(6080, () => { console.log("🚀 Express Control Bridge active on port 6080"); });
+        controlServer.on('upgrade', (req, socket, head) => {
+            const proxyReq = http.request({ host: '127.0.0.1', port: 6081, path: req.url, method: req.method, headers: req.headers });
+            proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+                socket.write(`HTTP/1.1 101 Switching Protocols\r\n` + Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') + '\r\n\r\n');
+                proxySocket.pipe(socket);
+                socket.pipe(proxySocket);
+            });
+            proxyReq.on('error', () => socket.destroy());
+            proxyReq.end();
+        });
+
+        // 2. NOW LAUNCH BROWSER & TUNNEL
         progressStatus = 'DEPLOYING';
         targetProgress = 20;
         const tunnel = await browserManager.launchMeeting(meetingUrl, customDisplayName);
@@ -356,21 +389,15 @@ async function run() {
         visualProgress = 100;
         progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
         systemLogs.push(`Identity: ${activeParticipantName}`);
-        if (scheduledStart) systemLogs.push(`Schedule Active: ${scheduledStart} - ${scheduledEnd}`);
+        if (scheduledStart) systemLogs.push(`Schedule: ${scheduledStart} - ${scheduledEnd}`);
         else systemLogs.push("Visual engine online.");
         if (systemLogs.length > 3) systemLogs.shift();
-        const expressApp = express();
-        expressApp.get('/record', async (req, res) => { await triggerStartRecording(); res.json({ success: true }); });
-        expressApp.get('/stop', async (req, res) => { res.json({ success: true }); await finalizeAndUpload(vncUrlGlobal); });
-        expressApp.listen(8088);
     } catch (error) {
         console.error("Runner Error:", error);
         process.exit(1);
     }
 }
-
 run();
-
 async function reportError(err) {
     const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
     try {
@@ -378,6 +405,5 @@ async function reportError(err) {
             errorUI.text + `\n\n🚨 *System Failure:* ${err.message || err}`, { parse_mode: 'Markdown' });
     } catch (e) {}
 }
-
 process.on('uncaughtException', async (err) => { await reportError(err); process.exit(1); });
 process.on('unhandledRejection', async (reason) => { await reportError(reason); process.exit(1); });
