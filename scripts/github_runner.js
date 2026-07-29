@@ -43,27 +43,82 @@ let vncUrlGlobal = null;
 let activeParticipantName = null;
 let systemLogs = ["Kernel mounting display...", "Initializing visual bridge..."];
 
+// Schedule state
+const scheduledStart = process.env.SCHEDULED_START; // HH:mm
+const scheduledEnd = process.env.SCHEDULED_END;     // HH:mm
+
 // Throttling for Telegram
 let lastUIUpdate = 0;
-const UI_UPDATE_INTERVAL = 4000; // 4s prevents Telegram 429 rate limit
+const UI_UPDATE_INTERVAL = 4000;
 
 // Use built-in chrome on GitHub
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
 /**
- * SMOOTH TICKER (100ms)
- * Increments visual progress smoothly in background
+ * SMOOTH TICKER
  */
 setInterval(() => {
     if (visualProgress < targetProgress) {
-        visualProgress += 0.2; // Very slow incremental creep
+        visualProgress += 0.2;
     } else if (visualProgress < 99 && (progressStatus === 'DEPLOYING' || progressStatus === 'FINALIZING')) {
-        visualProgress += 0.05; // Ghost creep to show life
+        visualProgress += 0.05;
     }
 }, 100);
 
 /**
- * MASTER UI PUSHER (Throttled)
+ * Helper to parse time strings (HH:mm) into Date objects for today
+ */
+function parseTimeToToday(timeStr) {
+    if (!timeStr) return null;
+    const [hours, minutes] = timeStr.split(':').map(Number);
+    const date = new Date();
+    date.setHours(hours, minutes, 0, 0);
+    return date;
+}
+
+/**
+ * Helper to format duration in seconds into MM:SS
+ */
+function formatTime(seconds) {
+    const mins = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const secs = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+}
+
+function getCountdownString() {
+    const now = new Date();
+    const startTime = parseTimeToToday(scheduledStart);
+    const endTime = parseTimeToToday(scheduledEnd);
+
+    if (startTime && now < startTime) {
+        const diff = Math.floor((startTime - now) / 1000);
+        return formatTime(diff);
+    }
+
+    if (endTime && isRecording) {
+        const diff = Math.floor((endTime - now) / 1000);
+        if (diff > 0) return formatTime(diff);
+        return `00:00`;
+    }
+
+    return null;
+}
+
+function getSessionUptime() {
+    const elapsed = Math.floor((Date.now() - runnerStartTime) / 1000);
+    return formatTime(elapsed);
+}
+
+function getWorkflowExpiry() {
+    // 360 minutes timeout from meet.yml
+    const maxSeconds = 360 * 60;
+    const elapsed = Math.floor((Date.now() - runnerStartTime) / 1000);
+    const remaining = Math.max(0, maxSeconds - elapsed);
+    return formatTime(remaining);
+}
+
+/**
+ * MASTER UI PUSHER
  */
 const masterUIInterval = setInterval(async () => {
     const now = Date.now();
@@ -86,8 +141,14 @@ const masterUIInterval = setInterval(async () => {
         partCount: processedSegments.size,
         latestTranscript: isRecording ? latestTranscript : null,
         participantName: activeParticipantName,
-        timer: getTimerString(),
-        logs: systemLogs
+        logs: systemLogs,
+        timers: {
+            uptime: getSessionUptime(),
+            capture: getTimerString(),
+            countdown: getCountdownString(),
+            expiry: getWorkflowExpiry()
+        },
+        schedule: scheduledStart ? { start: scheduledStart, end: scheduledEnd } : null
     });
 
     try {
@@ -98,47 +159,16 @@ const masterUIInterval = setInterval(async () => {
         if (e.description && e.description.includes("message is not modified")) return;
         if (e.description && e.description.includes("Too Many Requests")) {
             const waitSec = (parseInt(e.description.match(/\d+/)?.[0]) || 5) + 1;
-            console.warn(`Telegram 429 Rate Limit in runner. Backing off ${waitSec}s...`);
             lastUIUpdate = Date.now() + (waitSec * 1000);
             return;
         }
-        console.warn("UI Push throttled by Telegram.");
     }
-}, 1000); // Check every 500ms, but only push if 2.5s passed
+}, 1000);
 
 function getTimerString() {
     if (!recordingStartTime || !isRecording) return null;
     const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
-    const secs = (elapsed % 60).toString().padStart(2, '0');
-    return `${mins}:${secs}`;
-}
-
-async function getGhostSignal() {
-    try {
-        const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
-        const owner = process.env.GITHUB_OWNER;
-        const repo = process.env.GITHUB_REPO;
-        if (!token || !owner || !repo) return null;
-
-        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/actions/variables/GHOST_SIGNAL`, {
-            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
-            timeout: 3000
-        });
-        return res.data ? res.data.value : null;
-    } catch (e) {
-        return null;
-    }
-}
-
-async function getBotHostSignal() {
-    try {
-        const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
-        const res = await axios.get(`${botHost}/get_signal`, { timeout: 2500 });
-        return res.data ? res.data.signal : null;
-    } catch (e) {
-        return null;
-    }
+    return formatTime(elapsed);
 }
 
 async function checkRecordSignal() {
@@ -153,64 +183,92 @@ async function checkStopSignal() {
     return sig1 === 'STOP' || sig2 === 'STOP';
 }
 
+async function getGhostSignal() {
+    try {
+        const token = process.env.PAT_TOKEN || process.env.GITHUB_TOKEN;
+        const owner = process.env.GITHUB_OWNER;
+        const repo = process.env.GITHUB_REPO;
+        if (!token || !owner || !repo) return null;
+        const res = await axios.get(`https://api.github.com/repos/${owner}/${repo}/actions/variables/GHOST_SIGNAL`, {
+            headers: { 'Authorization': `token ${token}`, 'Accept': 'application/vnd.github.v3+json' },
+            timeout: 3000
+        });
+        return res.data ? res.data.value : null;
+    } catch (e) { return null; }
+}
+
+async function getBotHostSignal() {
+    try {
+        const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
+        const res = await axios.get(`${botHost}/get_signal`, { timeout: 2500 });
+        return res.data ? res.data.signal : null;
+    } catch (e) { return null; }
+}
+
 async function processLatestSegments() {
     if (!fs.existsSync(chunksDir)) return;
     const files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
-
     for (let i = 0; i < files.length - 1; i++) {
         const file = files[i];
         if (!processedSegments.has(file)) {
             processedSegments.add(file);
             const filePath = path.join(chunksDir, file);
-
             const audioPath = path.join(outputDir, `${file}.wav`);
             const audioExtracted = await recorder.extractAudio(filePath, audioPath);
-
             if (audioExtracted) {
                 const transcriptPath = await transcriber.transcribe(audioPath);
                 if (transcriptPath && fs.existsSync(transcriptPath)) {
                     const text = fs.readFileSync(transcriptPath, 'utf8');
                     const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
-                    if (cleanText) {
-                        fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
-                    }
-
+                    if (cleanText) fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
                     const lines = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:'));
-                    if (lines.length > 0) {
-                        latestTranscript = lines[lines.length - 1].replace(/^\[\d+:\d+\]\s*/, '');
-                    }
+                    if (lines.length > 0) latestTranscript = lines[lines.length - 1].replace(/^\[\d+:\d+\]\s*/, '');
                 }
             }
         }
     }
 }
 
+/**
+ * SCHEDULE MANAGER
+ */
 const backgroundTaskInterval = setInterval(async () => {
+    const now = new Date();
+    const startTime = parseTimeToToday(scheduledStart);
+    const endTime = parseTimeToToday(scheduledEnd);
+
     if (isRecording) {
         const shouldStop = await checkStopSignal();
-        if (shouldStop) {
+        // AUTO-STOP check
+        const isPastEndTime = endTime && now >= endTime;
+
+        if (shouldStop || isPastEndTime) {
+            if (isPastEndTime) systemLogs.push("Auto-Stop: Schedule completed.");
             await finalizeAndUpload(vncUrlGlobal);
         } else {
             await processLatestSegments();
         }
     } else {
-        // Check for record signal
         const recordSignal = await checkRecordSignal();
-        if (recordSignal) await triggerStartRecording();
+        // AUTO-START check
+        const isStartTimeReached = startTime && now >= startTime;
+
+        if (recordSignal || isStartTimeReached) {
+            if (isStartTimeReached) systemLogs.push("Auto-Start: Schedule reached.");
+            await triggerStartRecording();
+        }
     }
 }, 1500);
 
 async function triggerStartRecording() {
     if (!isRecording) {
         console.log("🔴 Starting HD Stream Recording...");
-        await fs.ensureDir(outputDir);
-        await fs.ensureDir(chunksDir);
         fs.writeFileSync(masterTranscriptPath, "✨ GHOST meet | FULL AI TRANSCRIPT\n━━━━━━━━━━━━━━━━━━━━━━\n\n");
         await recorder.startRecording();
         recordingStartTime = Date.now();
         isRecording = true;
         progressStatus = 'RECORDING';
-        systemLogs.push("Auto-Capture Active: Recording started.");
+        systemLogs.push("Manual Override: Starting capture...");
         if (systemLogs.length > 3) systemLogs.shift();
     }
 }
@@ -225,9 +283,7 @@ async function finalizeAndUpload(vncUrl) {
         systemLogs.push(wasRecording ? "Stopping capture, finalizing segments..." : "Stopping session...");
         if (systemLogs.length > 3) systemLogs.shift();
 
-        if (wasRecording) {
-            await recorder.stopRecording();
-        }
+        if (wasRecording) await recorder.stopRecording();
 
         const allFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
         for (const file of allFiles) {
@@ -235,10 +291,8 @@ async function finalizeAndUpload(vncUrl) {
                 processedSegments.add(file);
                 const filePath = path.join(chunksDir, file);
                 targetProgress = Math.min(95, targetProgress + 10);
-                systemLogs.push(`Processing & uploading final part ${processedSegments.size}...`);
+                systemLogs.push(`Processing final part ${processedSegments.size}...`);
                 if (systemLogs.length > 3) systemLogs.shift();
-
-                // Transcribe final segment before upload
                 const audioPath = path.join(outputDir, `${file}.wav`);
                 const audioExtracted = await recorder.extractAudio(filePath, audioPath);
                 if (audioExtracted) {
@@ -246,12 +300,9 @@ async function finalizeAndUpload(vncUrl) {
                     if (transcriptPath && fs.existsSync(transcriptPath)) {
                         const text = fs.readFileSync(transcriptPath, 'utf8');
                         const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
-                        if (cleanText) {
-                            fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
-                        }
+                        if (cleanText) fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
                     }
                 }
-
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size}`
                 }).catch(() => {});
@@ -259,15 +310,9 @@ async function finalizeAndUpload(vncUrl) {
         }
 
         if (fs.existsSync(masterTranscriptPath)) {
-            const transcriptContent = fs.readFileSync(masterTranscriptPath, 'utf8').trim();
-            if (!transcriptContent || transcriptContent.endsWith("━━━━━━━━━━━━━━━━━━━━━━")) {
-                fs.appendFileSync(masterTranscriptPath, "\n\n[SYSTEM: No speech or audio detected during this session.]\n");
-            }
-
             await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(masterTranscriptPath), filename: 'GHOST_meet_Full_Transcript.txt' }, {
-                caption: "📜 *Full AI Class / Meeting Transcript File*",
-                parse_mode: 'Markdown'
-            }).catch(e => console.error("Transcript upload error:", e.message));
+                caption: "📜 *Full AI Meeting Transcript File*", parse_mode: 'Markdown'
+            }).catch(() => {});
         }
 
         targetProgress = 100;
@@ -298,240 +343,28 @@ function getWorkflowStepLog(percent) {
 
 async function run() {
     try {
-        const customDisplayName = process.env.DISPLAY_NAME || process.env.BOT_DISPLAY_NAME || null;
-        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl} (Custom Name: ${customDisplayName || 'Random Human'})`);
+        const customDisplayName = process.env.DISPLAY_NAME || null;
+        console.log(`🚀 Launching GHOST Runner for URL: ${meetingUrl}`);
         progressStatus = 'DEPLOYING';
         targetProgress = 20;
-
         const tunnel = await browserManager.launchMeeting(meetingUrl, customDisplayName);
         vncUrlGlobal = tunnel.url;
         activeParticipantName = tunnel.participantName;
-
-        // Register active VNC tunnel URL with Telegram bot on Render
         const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
-        axios.get(`${botHost}/register_vnc?vncUrl=${encodeURIComponent(vncUrlGlobal)}`).then(() => {
-            console.log(`✅ Successfully registered VNC URL with bot server.`);
-        }).catch(e => console.warn(`VNC URL registration notice: ${e.message}`));
-
+        axios.get(`${botHost}/register_vnc?vncUrl=${encodeURIComponent(vncUrlGlobal)}`).catch(() => {});
         targetProgress = 100;
         visualProgress = 100;
-        progressStatus = 'READY';
-        systemLogs.push(`Identity set: ${activeParticipantName}`);
-        systemLogs.push("Visual engine online. Click START CAPTURE to record.");
+        progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
+        systemLogs.push(`Identity: ${activeParticipantName}`);
+        if (scheduledStart) systemLogs.push(`Schedule Active: ${scheduledStart} - ${scheduledEnd}`);
+        else systemLogs.push("Visual engine online.");
         if (systemLogs.length > 3) systemLogs.shift();
-
-        const http = require('http');
         const expressApp = express();
-
-        expressApp.get('/record', async (req, res) => {
-            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: START RECORDING!");
-            await triggerStartRecording();
-            res.json({ status: 'recording', success: true });
-        });
-
-        expressApp.get('/stop', async (req, res) => {
-            console.log("⚡ DIRECT TUNNEL HTTP SIGNAL: STOP RECORDING!");
-            res.json({ status: 'finalizing', success: true });
-            await finalizeAndUpload(vncUrlGlobal);
-        });
-
-        expressApp.get('/status', (req, res) => {
-            res.json({ isRecording, progressStatus });
-        });
-
-        // Intercept vnc.html to inject Mobile Cyber-Control Overlay
-        expressApp.get(['/vnc.html', '/vnc_lite.html'], (req, res) => {
-            const proxyReq = http.request({
-                host: '127.0.0.1',
-                port: 6081,
-                path: req.url,
-                method: 'GET',
-                headers: req.headers
-            }, (proxyRes) => {
-                let body = '';
-                proxyRes.setEncoding('utf8');
-                proxyRes.on('data', (chunk) => body += chunk);
-                proxyRes.on('end', () => {
-                    const mobileOverlayHTML = `
-<!-- GHOST MEET MOBILE CYBER CONTROLS (Client-Side Only: Never recorded in video) -->
-<style>
-  #ghost-mobile-control-bar {
-    position: fixed;
-    top: 12px;
-    right: 12px;
-    z-index: 999999;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(10, 15, 25, 0.88);
-    backdrop-filter: blur(12px);
-    border: 1px solid rgba(0, 255, 170, 0.4);
-    border-radius: 30px;
-    padding: 6px 12px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
-    user-select: none;
-    touch-action: manipulation;
-    font-family: system-ui, -apple-system, sans-serif;
-    transition: all 0.3s ease;
-  }
-  #ghost-mobile-control-bar.collapsed .ghost-btn-full {
-    display: none !important;
-  }
-  .ghost-mob-btn {
-    background: linear-gradient(135deg, #00ffaa, #00bfff);
-    color: #000;
-    border: none;
-    border-radius: 20px;
-    font-size: 12px;
-    font-weight: 800;
-    padding: 6px 10px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    box-shadow: 0 0 10px rgba(0, 255, 170, 0.3);
-  }
-  .ghost-mob-btn:active {
-    transform: scale(0.95);
-  }
-  .ghost-mob-btn-icon {
-    background: rgba(255, 255, 255, 0.15);
-    color: #00ffaa;
-    border: 1px solid rgba(0, 255, 170, 0.4);
-    border-radius: 50%;
-    width: 32px;
-    height: 32px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  #ghost-hidden-input {
-    position: fixed;
-    opacity: 0;
-    top: -9999px;
-    left: -9999px;
-    width: 1px;
-    height: 1px;
-  }
-</style>
-
-<div id="ghost-mobile-control-bar">
-  <button class="ghost-mob-btn-icon" id="ghost-toggle-bar" title="Toggle Controls">⚙️ Controls</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍 Zoom In (+)</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍 Zoom Out (-)</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-fit">🔄 Normal (Reset)</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️ Phone Keybd</button>
-</div>
-<input type="text" id="ghost-hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off">
-
-<script>
-(function() {
-  let currentScale = 0.8;
-  const bar = document.getElementById('ghost-mobile-control-bar');
-  const toggleBtn = document.getElementById('ghost-toggle-bar');
-  const zoomInBtn = document.getElementById('ghost-zoom-in');
-  const zoomOutBtn = document.getElementById('ghost-zoom-out');
-  const zoomFitBtn = document.getElementById('ghost-zoom-fit');
-  const kbdBtn = document.getElementById('ghost-keyboard');
-  const hiddenInput = document.getElementById('ghost-hidden-input');
-
-  if (toggleBtn) toggleBtn.addEventListener('click', () => bar.classList.toggle('collapsed'));
-
-  function applyScale(scale) {
-    currentScale = Math.max(0.4, Math.min(3.0, scale));
-    const canvas = document.querySelector('canvas') || document.getElementById('noVNC_canvas');
-    if (canvas) {
-      canvas.style.transform = 'scale(' + currentScale + ')';
-      canvas.style.transformOrigin = 'top left';
-    }
-  }
-
-  if (zoomInBtn) zoomInBtn.addEventListener('click', () => applyScale(currentScale + 0.3));
-  if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => applyScale(currentScale - 0.3));
-  if (zoomFitBtn) zoomFitBtn.addEventListener('click', () => applyScale(0.8));
-
-  if (kbdBtn && hiddenInput) {
-    kbdBtn.addEventListener('click', () => {
-      hiddenInput.focus();
-    });
-
-    hiddenInput.addEventListener('input', (e) => {
-      const char = e.data;
-      if (char && window.UI && window.UI.rfb) {
-        for (let i = 0; i < char.length; i++) {
-          const code = char.charCodeAt(i);
-          window.UI.rfb.sendKey(code, true);
-          window.UI.rfb.sendKey(code, false);
-        }
-      }
-      hiddenInput.value = '';
-    });
-  }
-})();
-</script>
-`;
-                    const modifiedBody = body.includes('</body>') ? body.replace('</body>', mobileOverlayHTML + '</body>') : body + mobileOverlayHTML;
-                    res.writeHead(proxyRes.statusCode, proxyRes.headers);
-                    res.end(modifiedBody);
-                });
-            });
-
-            proxyReq.on('error', () => {
-                if (!res.headersSent) res.status(502).send("Visual Bridge Initializing...");
-            });
-
-            proxyReq.end();
-        });
-
-        // Proxy all other HTTP traffic to NoVNC on 6081
-        expressApp.use((req, res) => {
-            const proxyReq = http.request({
-                host: '127.0.0.1',
-                port: 6081,
-                path: req.url,
-                method: req.method,
-                headers: req.headers
-            }, (proxyRes) => {
-                res.writeHead(proxyRes.statusCode, proxyRes.headers);
-                proxyRes.pipe(res, { end: true });
-            });
-
-            proxyReq.on('error', () => {
-                if (!res.headersSent) res.status(502).send("Visual Bridge Initializing...");
-            });
-
-            req.pipe(proxyReq, { end: true });
-        });
-
-        const controlServer = expressApp.listen(6080, () => {
-            console.log("🚀 Express Control Bridge listening on port 6080");
-        });
-
-        // Proxy WebSockets for NoVNC
-        controlServer.on('upgrade', (req, socket, head) => {
-            const proxyReq = http.request({
-                host: '127.0.0.1',
-                port: 6081,
-                path: req.url,
-                method: req.method,
-                headers: req.headers
-            });
-
-            proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
-                socket.write(`HTTP/1.1 101 Switching Protocols\r\n` +
-                    Object.keys(proxyRes.headers).map(k => `${k}: ${proxyRes.headers[k]}`).join('\r\n') + '\r\n\r\n');
-                proxySocket.pipe(socket);
-                socket.pipe(proxySocket);
-            });
-
-            proxyReq.on('error', () => socket.destroy());
-            proxyReq.end();
-        });
-
+        expressApp.get('/record', async (req, res) => { await triggerStartRecording(); res.json({ success: true }); });
+        expressApp.get('/stop', async (req, res) => { res.json({ success: true }); await finalizeAndUpload(vncUrlGlobal); });
+        expressApp.listen(8088);
     } catch (error) {
-        console.error("Runner Execution Error:", error);
+        console.error("Runner Error:", error);
         process.exit(1);
     }
 }
@@ -539,23 +372,12 @@ async function run() {
 run();
 
 async function reportError(err) {
-    console.error("GHOST Runner Error:", err);
     const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
     try {
         await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined,
-            errorUI.text + `\n\n🚨 *System Failure:* ${err.message || err}`,
-            { parse_mode: 'Markdown' }
-        );
-        await bot.telegram.sendMessage(chatId, `❌ *Runner Process Terminated:* ${err.message || err}`, { parse_mode: 'Markdown' });
+            errorUI.text + `\n\n🚨 *System Failure:* ${err.message || err}`, { parse_mode: 'Markdown' });
     } catch (e) {}
 }
 
-process.on('uncaughtException', async (err) => {
-    await reportError(err);
-    process.exit(1);
-});
-
-process.on('unhandledRejection', async (reason) => {
-    await reportError(reason);
-    process.exit(1);
-});
+process.on('uncaughtException', async (err) => { await reportError(err); process.exit(1); });
+process.on('unhandledRejection', async (reason) => { await reportError(reason); process.exit(1); });

@@ -1,13 +1,14 @@
 const { Markup } = require('telegraf');
 
 /**
- * GHOST meet | Advanced UI Engine v2.0
- * Generates a "Cyber Terminal" aesthetic for the capture suite
+ * GHOST meet | Advanced UI Engine v2.5
+ * Cyber Terminal with Scheduling & Countdown Support
  */
 
 const STATUS_ICONS = {
     INITIALIZING: '⚡',
     DEPLOYING: '🛰',
+    SCHEDULED: '📅',
     READY: '🟢',
     RECORDING: '🔴',
     FINALIZING: '⚙️',
@@ -18,35 +19,48 @@ const STATUS_ICONS = {
 function generatePlayerUI(params) {
     const {
         status,
-        timer,
         meetingUrl,
         vncUrl,
         partCount,
         progress,
-        stepLog,
         latestTranscript,
         participantName,
-        logs = [] // Array of last 3-5 log entries
+        logs = [],
+        timers = {}, // uptime, capture, countdown, expiry
+        schedule
     } = params;
 
     const icon = STATUS_ICONS[status] || '🛸';
 
     // 1. HEADER SECTION
-    let uiText = `\`[ GHOST-MEET v2.0 | KERNEL ACTIVE ]\`\n`;
+    let uiText = `\`[ GHOST-MEET v2.5 | KERNEL ACTIVE ]\`\n`;
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     // 2. STATUS & TELEMETRY BLOCK
     uiText += `📍 STATUS: *${status}* ${icon}\n`;
-    if (participantName) {
-        uiText += `👤 PARTICIPANT: \`${participantName}\` (Human Identity)\n`;
-    }
-    if (timer) {
-        uiText += `⏱ UPTIME: \`${timer}\`\n`;
+
+    if (schedule && schedule.start) {
+        uiText += `🗓 SCHEDULE: \`${schedule.start} - ${schedule.end || 'MANUAL'}\`\n`;
     }
 
-    // Fake/Simulated Telemetry for "Cool" factor
-    const pulse = status === 'RECORDING' ? 'HIGH' : 'NORMAL';
-    uiText += `📊 SYSTEM: \`⚡Pulse:${pulse}\` | \`📟CPU:12%\` | \`📡Signal:MAX\`\n`;
+    if (participantName) {
+        uiText += `👤 IDENTITY: \`${participantName}\`\n`;
+    }
+
+    uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+    uiText += `📟 *SYSTEM TELEMETRY DASHBOARD:*\n`;
+    uiText += `\`\`\``;
+    uiText += `\n🌐 SESSION : ${timers.uptime || '00:00'}`;
+    uiText += `\n🔴 CAPTURE : ${timers.capture || '--:--'}`;
+
+    if (timers.countdown) {
+        const label = status === 'RECORDING' ? 'REMAINING' : 'T-MINUS  ';
+        uiText += `\n⏳ ${label}: ${timers.countdown}`;
+    }
+
+    uiText += `\n🚪 EXPIRES : ${timers.expiry || '06:00:00'}`;
+    uiText += `\n⚡ PULSE   : ${status === 'RECORDING' ? 'MAX' : 'STABLE'}`;
+    uiText += `\`\`\`\n`;
 
     if (partCount) {
         uiText += `🎥 STORAGE: \`${partCount} segments secured\`\n`;
@@ -55,18 +69,16 @@ function generatePlayerUI(params) {
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     // 3. PROGRESS & LOGS SECTION
-    if (progress !== undefined && status !== 'RECORDING') {
+    if (progress !== undefined && status !== 'RECORDING' && status !== 'SCHEDULED') {
         const label = (status === 'INITIALIZING' || status === 'DEPLOYING') ? 'DEPLOYMENT' : 'PROCESSING';
         uiText += `📡 *${label} FEED:*\n`;
         uiText += `${getAdvancedProgressBar(progress)}\n\n`;
     }
 
-    // Rolling Terminal Logs
-    if (logs.length > 0 || stepLog) {
+    if (logs.length > 0) {
         uiText += `📟 *TERMINAL OUTPUT:*\n`;
         uiText += `\`\`\``;
-        const displayLogs = logs.length > 0 ? logs.slice(-3) : [stepLog];
-        displayLogs.forEach(log => {
+        logs.slice(-3).forEach(log => {
             uiText += `\n> ${log}`;
         });
         uiText += `\`\`\`\n`;
@@ -87,9 +99,8 @@ function generatePlayerUI(params) {
     }
 
     const rawRdpUrl = vncUrl || (meetingUrl && meetingUrl.includes('serveo') ? meetingUrl : null);
-    let finalVncUrl = null;
     if (rawRdpUrl) {
-        finalVncUrl = rawRdpUrl.includes('vnc.html') ? rawRdpUrl : `${rawRdpUrl.replace(/\/$/, '')}/vnc.html?autoconnect=true`;
+        const finalVncUrl = rawRdpUrl.includes('vnc.html') ? rawRdpUrl : `${rawRdpUrl.replace(/\/$/, '')}/vnc.html?autoconnect=true`;
         uiText += `🖥 [LIVE RDP DASHBOARD](${finalVncUrl})\n`;
     } else {
         uiText += `\n`;
@@ -97,11 +108,12 @@ function generatePlayerUI(params) {
 
     // Inline Buttons
     const buttons = [];
-    if (finalVncUrl) {
+    if (rawRdpUrl) {
+        const finalVncUrl = rawRdpUrl.includes('vnc.html') ? rawRdpUrl : `${rawRdpUrl.replace(/\/$/, '')}/vnc.html?autoconnect=true`;
         buttons.push([Markup.button.url('🖥 OPEN RDP VIEW', finalVncUrl)]);
     }
 
-    if (status === 'READY') {
+    if (status === 'READY' || status === 'SCHEDULED') {
         buttons.push([
             Markup.button.callback('⏺ START CAPTURE', 'cmd_record'),
             Markup.button.callback('🛑 END SESSION', 'cmd_stop')
@@ -123,10 +135,9 @@ function generatePlayerUI(params) {
 }
 
 function getAdvancedProgressBar(percent) {
-    const total = 15; // 15 blocks
+    const total = 15;
     const progress = Math.round((percent / 100) * total);
     const remaining = total - progress;
-    // Using cyberpunk style blocks
     return `\`▰${"▰".repeat(progress)}${"▱".repeat(remaining)}▱\` \`${percent}%\``;
 }
 

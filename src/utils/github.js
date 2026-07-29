@@ -109,7 +109,7 @@ async function setGhostSignal(signalValue) {
 /**
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
-async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null) {
+async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -134,7 +134,9 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
                 meeting_url: meetingUrl,
                 player_message_id: playerMessageId,
                 chat_id: chatId,
-                display_name: displayName
+                display_name: displayName,
+                scheduled_start: scheduledStart,
+                scheduled_end: scheduledEnd
             }
         }, {
             headers: {

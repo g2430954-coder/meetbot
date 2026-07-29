@@ -9,7 +9,7 @@ const ui = require('../utils/ui');
 dotenv.config();
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const ALLOWED_GROUP_ID = process.env.ALLOWED_GROUP_ID;
+const ALLOWED_GROUPS = (process.env.ALLOWED_GROUPS || process.env.ALLOWED_GROUP_ID || "").split(',').map(id => id.trim());
 
 // Global session state
 let activeSignal = 'NONE';
@@ -22,7 +22,8 @@ const sessionState = {
     playerMessageId: null,
     vncUrl: null,
     monitorInterval: null,
-    lastActionTime: 0
+    lastActionTime: 0,
+    schedule: { start: null, end: null }
 };
 
 // Deduplication Cache
@@ -60,37 +61,70 @@ async function throttledEdit(ctx, text, markup) {
 }
 
 /**
- * Helper to extract meeting URL and optional custom human display name from text
+ * Helper to convert 12h time (AM/PM) to 24h format HH:mm
  */
-function extractMeetingUrlAndName(text) {
-    if (!text) return { meetingUrl: null, displayName: null };
-    text = text.trim();
-    let parts = [];
-    if (text.startsWith('/join')) {
-        parts = text.split(/\s+/).slice(1);
-    } else {
-        parts = text.split(/\s+/);
+function convertTo24Hour(timeStr) {
+    if (!timeStr) return null;
+    const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+    if (!match) return timeStr;
+
+    let [_, hours, minutes, period] = match;
+    hours = parseInt(hours);
+    minutes = parseInt(minutes);
+
+    if (period) {
+        period = period.toLowerCase();
+        if (period === 'pm' && hours < 12) hours += 12;
+        if (period === 'am' && hours === 12) hours = 0;
     }
 
-    let meetingUrl = null;
-    let displayName = null;
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+}
 
-    for (let i = 0; i < parts.length; i++) {
-        if (/^https?:\/\//i.test(parts[i])) {
-            meetingUrl = parts[i].trim();
-            const nameParts = parts.slice(i + 1);
-            if (nameParts.length > 0) {
-                displayName = nameParts.join(' ').trim();
-            }
-            break;
+/**
+ * Helper to extract meeting URL, start time, and end time from text
+ */
+function parseJoinParams(text) {
+    if (!text) return { url: null, displayName: null, start: null, end: null };
+    text = text.trim();
+
+    let commandText = text;
+    if (text.startsWith('/join')) {
+        commandText = text.substring(5).trim();
+    }
+
+    // Advanced regex to catch HH:mm with optional AM/PM
+    const timeRegex = /\b(\d{1,2}:\d{2}(?:\s*[ap]m)?)\b/gi;
+    const times = commandText.match(timeRegex) || [];
+
+    // Remove times from command text to extract URL and Name
+    let remainingText = commandText;
+    times.forEach(t => {
+        remainingText = remainingText.replace(t, '');
+    });
+
+    const parts = remainingText.split(/\s+/).filter(p => p.trim());
+    let url = null;
+    let otherParts = [];
+
+    for (const part of parts) {
+        if (/^https?:\/\//i.test(part) && !url) {
+            url = part.trim();
+        } else {
+            otherParts.push(part);
         }
     }
 
-    return { meetingUrl, displayName };
+    return {
+        url,
+        displayName: otherParts.join(' ').trim() || null,
+        start: times[0] ? convertTo24Hour(times[0].trim()) : null,
+        end: times[1] ? convertTo24Hour(times[1].trim()) : null
+    };
 }
 
 function extractMeetingUrl(text) {
-    return extractMeetingUrlAndName(text).meetingUrl;
+    return parseJoinParams(text).url;
 }
 
 /**
@@ -111,17 +145,19 @@ bot.use(async (ctx, next) => {
     }
 
     const chatId = ctx.chat.id.toString();
-    if (ALLOWED_GROUP_ID && ALLOWED_GROUP_ID !== '*' && chatId !== ALLOWED_GROUP_ID) {
+    const isAllowed = ALLOWED_GROUPS.includes('*') || ALLOWED_GROUPS.includes(chatId);
+
+    if (!isAllowed) {
         if (ctx.message && ctx.message.text) {
-            return ctx.replyWithMarkdown(`🚨 *GHOST meet | ACCESS DENIED*\nThis terminal is locked to Group ID: \`${ALLOWED_GROUP_ID}\`.`);
+            return ctx.replyWithMarkdown(`🚨 *GHOST meet | ACCESS DENIED*\nChat ID \`${chatId}\` is not in the authorized list.`);
         }
         return;
     }
 
     if (ctx.message && ctx.message.text && !ctx.message.text.startsWith('/')) {
-        const rawUrl = extractMeetingUrl(ctx.message.text);
-        if (rawUrl) {
-            ctx.message.text = `/join ${rawUrl}`;
+        const { url } = parseJoinParams(ctx.message.text);
+        if (url) {
+            ctx.message.text = `/join ${ctx.message.text}`;
             return next();
         }
     }
@@ -133,19 +169,46 @@ bot.use(async (ctx, next) => {
  */
 bot.start((ctx) => {
     const welcomeUI =
-        "🛸 *GHOST meet | STEALTH TERMINAL*\n" +
+        "🛸 *GHOST meet | STEALTH TERMINAL v2.5*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
-        "Status: ✅ *OPERATIONAL*\n\n" +
-        "📋 *Commands:*\n" +
-        "🔹 `/join <url> [name]` - Deploy stealth engine (Auto-Human Name)\n" +
-        "🔹 `/record` - Start HD Capture\n" +
-        "🔹 `/stop` - Stop & Upload\n" +
-        "🔹 `/status` - Engine Diagnostics";
+        "Status: ✅ *KERNEL OPERATIONAL*\n\n" +
+        "📋 *Primary Command Syntax:*\n" +
+        "🔹 `/join <url> [name] [start] [end]`\n\n" +
+        "💡 *Scheduling Examples:*\n" +
+        "• _Manual_: `/join https://meet.com/abc` (Control via buttons)\n" +
+        "• _Auto-Pilot_: `/join https://meet.com/abc 2:00 PM 3:30 PM` (Full automatic cycle)\n" +
+        "• _24h Format_: `/join https://meet.com/abc 14:00 15:30` \n\n" +
+        "Use /help for detailed operational manual.";
 
     ctx.replyWithMarkdown(welcomeUI, Markup.inlineKeyboard([
         [Markup.button.callback('⚙️ Check Diagnostics', 'engine_status')],
-        [Markup.button.callback('📖 Help', 'help_guide')]
+        [Markup.button.callback('📖 Operational Manual', 'help_guide')]
     ]));
+});
+
+/**
+ * /help - Detailed user manual
+ */
+bot.help((ctx) => {
+    const helpUI =
+        "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "1️⃣ *Deploying the Bot*\n" +
+        "Send the Google Meet link to this group. The bot will automatically trigger a cloud runner.\n\n" +
+        "2️⃣ *Scheduling (Optional)*\n" +
+        "To record automatically, include start and end times:\n" +
+        "`/join <url> 10:00 AM 11:30 AM` \n" +
+        "• The bot will join immediately to 'standby'.\n" +
+        "• Recording starts exactly at the start time.\n" +
+        "• Recording stops and uploads exactly at the end time.\n\n" +
+        "3️⃣ *Manual Control*\n" +
+        "If no time is set, use the interactive buttons in the Terminal:\n" +
+        "• `START CAPTURE`: Begins 1080p recording.\n" +
+        "• `TERMINATE & SAVE`: Stops, splits video, and sends transcript.\n\n" +
+        "4️⃣ *Multi-Group Usage*\n" +
+        "This bot can be authorized for multiple groups. Contact admin to add your Group ID to the kernel.";
+
+    ctx.replyWithMarkdown(helpUI);
 });
 
 /**
@@ -157,15 +220,17 @@ function resetSession() {
     sessionState.isRecording = false;
     sessionState.currentUrl = null;
     sessionState.playerMessageId = null;
+    sessionState.vncUrl = null;
+    sessionState.schedule = { start: null, end: null };
     if (sessionState.monitorInterval) clearInterval(sessionState.monitorInterval);
 }
 
 /**
- * /join <url> [displayName] - Deploy visual engine
+ * /join <url> [displayName] [start] [end] - Deploy visual engine
  */
 bot.command('join', async (ctx) => {
-    const { meetingUrl, displayName } = extractMeetingUrlAndName(ctx.message.text);
-    if (!meetingUrl) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
+    const { url, displayName, start, end } = parseJoinParams(ctx.message.text);
+    if (!url) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
 
     // Auto-reset if in completed/error state
     if (!sessionState.isRecording && sessionState.isJoined === false) {
@@ -174,22 +239,37 @@ bot.command('join', async (ctx) => {
         return ctx.replyWithMarkdown("⚠️ *Active Session Exists*. Use `/stop` first.");
     }
 
-    sessionState.currentUrl = meetingUrl;
+    sessionState.currentUrl = url;
     sessionState.currentChatId = ctx.chat.id;
     sessionState.isJoined = true;
+    sessionState.schedule = { start, end };
 
-    const player = ui.generatePlayerUI({ status: 'INITIALIZING', progress: 1, meetingUrl });
+    if (start && !end) {
+        ctx.replyWithMarkdown("💡 *Tip:* You provided a start time but no end time. The bot will start recording at your scheduled time, but you will need to stop it manually.");
+    }
+
+    const player = ui.generatePlayerUI({
+        status: start ? 'SCHEDULED' : 'INITIALIZING',
+        progress: 1,
+        meetingUrl: url,
+        schedule: sessionState.schedule
+    });
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     sessionState.playerMessageId = msg.message_id;
 
     try {
-        await github.triggerRunner(meetingUrl, sessionState.playerMessageId, ctx.chat.id.toString(), displayName);
-        const dispatchedUI = ui.generatePlayerUI({ status: 'DEPLOYING', progress: 3, meetingUrl });
+        await github.triggerRunner(url, sessionState.playerMessageId, ctx.chat.id.toString(), displayName, start, end);
+        const dispatchedUI = ui.generatePlayerUI({
+            status: start ? 'SCHEDULED' : 'DEPLOYING',
+            progress: 3,
+            meetingUrl: url,
+            schedule: sessionState.schedule
+        });
         await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup);
         startWorkflowMonitor(ctx);
     } catch (error) {
         sessionState.isJoined = false;
-        const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl });
+        const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: url });
         await throttledEdit(ctx, errorUI.text + `\n\n🚨 *Failure:* ${error.message}`, { parse_mode: 'Markdown' });
     }
 });
@@ -212,7 +292,6 @@ async function handleRecord(ctx) {
 
     await throttledEdit(ctx, startingUI.text, startingUI.markup);
 
-    // Direct HTTP signal via Serveo tunnel for 0ms delay
     if (sessionState.vncUrl) {
         try {
             const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
@@ -250,7 +329,6 @@ async function handleStop(ctx) {
 
     await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup);
 
-    // Direct HTTP signal via Serveo tunnel
     if (sessionState.vncUrl) {
         try {
             const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
@@ -304,9 +382,7 @@ function startWorkflowMonitor(ctx) {
         }
         const isRunning = await github.isWorkflowRunning();
         if (!isRunning && sessionState.isJoined) {
-            // Runner might have finished naturally or crashed
             if (!sessionState.isRecording) {
-                 // If not recording, it's likely a join failure or idle timeout
                  logger.warn("Workflow monitor detected runner is no longer active.");
                  sessionState.isJoined = false;
                  const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
@@ -314,7 +390,7 @@ function startWorkflowMonitor(ctx) {
                  clearInterval(sessionState.monitorInterval);
             }
         }
-    }, 30000); // 30s interval is fine for status checks
+    }, 30000);
 }
 
 // Inline Actions
@@ -326,7 +402,20 @@ bot.action('engine_status', (ctx) => {
 
 bot.action('help_guide', (ctx) => {
     try { ctx.answerCbQuery(); } catch (e) {}
-    ctx.replyWithMarkdown(`📖 *Quick Help*\n1️⃣ Send link\n2️⃣ Start Recording\n3️⃣ Stop & Save`);
+    const helpUI =
+        "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
+        "━━━━━━━━━━━━━━━━━━━━━━\n" +
+        "1️⃣ *Deploying the Bot*\n" +
+        "Send the Google Meet link. The bot will trigger the runner.\n\n" +
+        "2️⃣ *Auto-Pilot Mode*\n" +
+        "Set start and end times for full automation:\n" +
+        "`/join <url> 10:00 AM 11:30 AM` \n\n" +
+        "3️⃣ *Manual Mode*\n" +
+        "Use Terminal buttons if no time is set:\n" +
+        "• `START CAPTURE`: Begins HD recording.\n" +
+        "• `TERMINATE & SAVE`: Finalizes and uploads.";
+
+    ctx.replyWithMarkdown(helpUI);
 });
 
 const app = express();
