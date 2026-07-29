@@ -58,8 +58,12 @@ function generatePlayerUI(params) {
         uiText += `\n⏳ ${label}: ${timers.countdown}`;
     }
 
+    if (params.wordCount) {
+        uiText += `\n📝 DATA    : ${params.wordCount} words`;
+    }
+
     uiText += `\n🚪 EXPIRES : ${timers.expiry || '06:00:00'}`;
-    uiText += `\n⚡ PULSE   : ${status === 'RECORDING' ? 'MAX' : 'STABLE'}`;
+    uiText += `\n⚡ PULSE   : ${status === 'RECORDING' ? 'HIGH-FREQ' : 'STABLE'}`;
     uiText += `\`\`\`\n`;
 
     if (partCount) {
