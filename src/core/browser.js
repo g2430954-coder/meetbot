@@ -504,7 +504,8 @@ async function launchMeeting(url, customDisplayName = null) {
         const participantName = await joinGoogleMeet(page, customDisplayName);
 
         const vncPass = process.env.VNC_PASSWORD || "";
-        const oneClickUrl = `${tunnelUrl}/vnc.html?autoconnect=true&password=${vncPass}&resize=scale&scale=0.8`;
+        // REMOVED fixed scale=0.8, using 'resize=scale' to let NoVNC auto-fit to any screen size (Phone/PC)
+        const oneClickUrl = `${tunnelUrl}/vnc.html?autoconnect=true&password=${vncPass}&resize=scale`;
         logger.info(`Final Dashboard URL: ${oneClickUrl}`);
 
         return { url: oneClickUrl, participantName };

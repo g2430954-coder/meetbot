@@ -333,21 +333,30 @@ async function run() {
                 proxyRes.on('data', (chunk) => body += chunk);
                 proxyRes.on('end', () => {
                     const mobileOverlayHTML = `
+<!-- GHOST MEET MOBILE CYBER CONTROLS -->
 <style>
   #ghost-mobile-control-bar { position: fixed; top: 12px; right: 12px; z-index: 999999; display: flex; align-items: center; gap: 6px; background: rgba(10, 15, 25, 0.88); backdrop-filter: blur(12px); border: 1px solid rgba(0, 255, 170, 0.4); border-radius: 30px; padding: 6px 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6); touch-action: manipulation; font-family: sans-serif; transition: all 0.3s ease; }
+  #ghost-mobile-control-bar.collapsed { padding: 4px; border-radius: 50%; }
   #ghost-mobile-control-bar.collapsed .ghost-btn-full { display: none !important; }
-  .ghost-mob-btn { background: linear-gradient(135deg, #00ffaa, #00bfff); color: #000; border: none; border-radius: 20px; font-size: 12px; font-weight: 800; padding: 6px 10px; cursor: pointer; }
-  .ghost-mob-btn-icon { background: rgba(255, 255, 255, 0.15); color: #00ffaa; border: 1px solid rgba(0, 255, 170, 0.4); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; }
+  .ghost-mob-btn { background: linear-gradient(135deg, #00ffaa, #00bfff); color: #000; border: none; border-radius: 20px; font-size: 12px; font-weight: 800; padding: 6px 10px; cursor: pointer; white-space: nowrap; }
+  .ghost-mob-btn-icon { background: rgba(255, 255, 255, 0.15); color: #00ffaa; border: 1px solid rgba(0, 255, 170, 0.4); border-radius: 50%; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  canvas { max-width: 100vw !important; height: auto !important; object-fit: contain !important; }
 </style>
-<div id="ghost-mobile-control-bar">
+<div id="ghost-mobile-control-bar" class="collapsed">
   <button class="ghost-mob-btn-icon" id="ghost-toggle-bar">⚙️</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-in">🔍+</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-out">🔍-</button>
-  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-zoom-fit">🔍 Fit Screen</button>
+  <button class="ghost-mob-btn ghost-btn-full" id="ghost-keyboard">⌨️ Kbd</button>
 </div>
 <script>
   const bar = document.getElementById('ghost-mobile-control-bar');
   document.getElementById('ghost-toggle-bar').onclick = () => bar.classList.toggle('collapsed');
+  document.getElementById('ghost-zoom-fit').onclick = () => {
+      const canvas = document.querySelector('canvas') || document.getElementById('noVNC_canvas');
+      if (canvas) {
+          canvas.style.width = '100vw';
+          canvas.style.height = 'auto';
+      }
+  };
 </script>`;
                     const modifiedBody = body.includes('</body>') ? body.replace('</body>', mobileOverlayHTML + '</body>') : body + mobileOverlayHTML;
                     res.writeHead(proxyRes.statusCode, proxyRes.headers);
