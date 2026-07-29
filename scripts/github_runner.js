@@ -25,6 +25,7 @@ let isRecording = false;
 let recordingStartTime = null;
 let processedSegments = new Set();
 let latestTranscript = "";
+let isProcessingSegment = false; // LOCK to prevent overlap
 const runnerStartTime = Date.now();
 
 const outputDir = path.join(__dirname, '../output');
@@ -192,24 +193,62 @@ async function checkStopSignal() {
 }
 
 async function processLatestSegments() {
-    if (!fs.existsSync(chunksDir)) return;
+    if (!fs.existsSync(chunksDir) || isProcessingSegment) return;
+
     const files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
+
+    // A segment is considered "finished" if a LATER segment exists
     for (let i = 0; i < files.length - 1; i++) {
         const file = files[i];
         if (!processedSegments.has(file)) {
-            processedSegments.add(file);
-            const filePath = path.join(chunksDir, file);
-            const audioPath = path.join(outputDir, `${file}.wav`);
-            const audioExtracted = await recorder.extractAudio(filePath, audioPath);
-            if (audioExtracted) {
-                const transcriptPath = await transcriber.transcribe(audioPath);
-                if (transcriptPath && fs.existsSync(transcriptPath)) {
-                    const text = fs.readFileSync(transcriptPath, 'utf8');
-                    const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
-                    if (cleanText) fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
-                    const lines = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:'));
-                    if (lines.length > 0) latestTranscript = lines[lines.length - 1].replace(/^\[\d+:\d+\]\s*/, '');
+            isProcessingSegment = true;
+            try {
+                const partNum = processedSegments.size + 1;
+                const filePath = path.join(chunksDir, file);
+
+                console.log(`📦 Real-Time Processing: ${file}`);
+                systemLogs.push(`Processing Part ${partNum}...`);
+                if (systemLogs.length > 3) systemLogs.shift();
+
+                // 1. Extract Audio & Transcribe
+                let segmentText = "No speech detected in this segment.";
+                const audioPath = path.join(outputDir, `${file}.wav`);
+                const audioExtracted = await recorder.extractAudio(filePath, audioPath);
+
+                if (audioExtracted) {
+                    const transcriptPath = await transcriber.transcribe(audioPath);
+                    if (transcriptPath && fs.existsSync(transcriptPath)) {
+                        const text = fs.readFileSync(transcriptPath, 'utf8');
+                        const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
+                        if (cleanText) {
+                            fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+                            segmentText = cleanText;
+                        }
+                        const lines = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:'));
+                        if (lines.length > 0) latestTranscript = lines[lines.length - 1].replace(/^\[\d+:\d+\]\s*/, '');
+                    }
                 }
+
+                // 2. Upload Video Part to Telegram
+                systemLogs.push(`Uploading Part ${partNum}...`);
+                if (systemLogs.length > 3) systemLogs.shift();
+
+                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
+                    caption: `🎥 GHOST meet Recording | Part ${partNum}\n📜 Text: ${segmentText.substring(0, 800)}...`
+                });
+
+                processedSegments.add(file);
+                systemLogs.push(`Part ${partNum} secured.`);
+                if (systemLogs.length > 3) systemLogs.shift();
+
+                // Cleanup temporary audio
+                if (fs.existsSync(audioPath)) fs.removeSync(audioPath);
+
+            } catch (e) {
+                console.error(`Error processing segment ${file}:`, e.message);
+                await bot.telegram.sendMessage(chatId, `🚨 *Upload Warning:* Failed to process Part ${processedSegments.size + 1}. System will retry later.`, { parse_mode: 'Markdown' }).catch(() => {});
+            } finally {
+                isProcessingSegment = false;
             }
         }
     }
@@ -254,42 +293,83 @@ async function triggerStartRecording() {
 async function finalizeAndUpload(vncUrl) {
     const wasRecording = isRecording;
     isRecording = false;
+
+    // Wait if a segment is currently being processed
+    for (let i = 0; i < 20; i++) {
+        if (!isProcessingSegment) break;
+        await new Promise(r => setTimeout(r, 2000));
+    }
+    isProcessingSegment = true;
+
     try {
         progressStatus = 'FINALIZING';
         targetProgress = 40;
-        systemLogs.push(wasRecording ? "Stopping capture..." : "Stopping session...");
+        systemLogs.push(wasRecording ? "Terminating capture engine..." : "Finalizing session...");
         if (systemLogs.length > 3) systemLogs.shift();
+
         if (wasRecording) await recorder.stopRecording();
+
         const allFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
         for (const file of allFiles) {
             if (!processedSegments.has(file)) {
-                processedSegments.add(file);
+                const partNum = processedSegments.size + 1;
                 const filePath = path.join(chunksDir, file);
                 targetProgress = Math.min(95, targetProgress + 10);
-                systemLogs.push(`Uploading final part ${processedSegments.size}...`);
+
+                systemLogs.push(`Processing Final Part ${partNum}...`);
                 if (systemLogs.length > 3) systemLogs.shift();
+
+                // Transcribe final segment before upload
+                let segmentText = "No speech detected in this final segment.";
+                const audioPath = path.join(outputDir, `${file}.wav`);
+                const audioExtracted = await recorder.extractAudio(filePath, audioPath);
+                if (audioExtracted) {
+                    const transcriptPath = await transcriber.transcribe(audioPath);
+                    if (transcriptPath && fs.existsSync(transcriptPath)) {
+                        const text = fs.readFileSync(transcriptPath, 'utf8');
+                        const cleanText = text.replace(/━━━━━━━━━━━━━━━━━━━━━━\n/g, '').replace(/✨ GHOST meet \| AI TRANSCRIPTION.*\n/g, '').trim();
+                        if (cleanText) {
+                            fs.appendFileSync(masterTranscriptPath, cleanText + "\n");
+                            segmentText = cleanText;
+                        }
+                    }
+                }
+
+                systemLogs.push(`Uploading Part ${partNum}...`);
+                if (systemLogs.length > 3) systemLogs.shift();
+
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
-                    caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size}`
+                    caption: `🎥 GHOST meet Recording | Final Part ${partNum}\n📜 Text: ${segmentText.substring(0, 800)}...`
                 }).catch(() => {});
+
+                processedSegments.add(file);
+                if (fs.existsSync(audioPath)) fs.removeSync(audioPath);
             }
         }
+
         if (fs.existsSync(masterTranscriptPath)) {
+            systemLogs.push("Sending full transcript...");
+            if (systemLogs.length > 3) systemLogs.shift();
             await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(masterTranscriptPath), filename: 'GHOST_meet_Full_Transcript.txt' }, {
                 caption: "📜 *Full AI Meeting Transcript File*", parse_mode: 'Markdown'
             }).catch(() => {});
         }
+
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = 'COMPLETED';
-        systemLogs.push("All assets secured. Engine hibernated.");
+        systemLogs.push("Mission successful. Engine offline.");
         if (systemLogs.length > 3) systemLogs.shift();
+
         setTimeout(() => {
             clearInterval(masterUIInterval);
             clearInterval(backgroundTaskInterval);
             process.exit(0);
         }, 10000);
+
     } catch (err) {
         console.error("Finalize Error:", err);
+        isProcessingSegment = false;
         process.exit(1);
     }
 }
