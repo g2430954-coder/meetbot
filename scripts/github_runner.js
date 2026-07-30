@@ -30,7 +30,7 @@ let processedSegments = new Set();
 let latestTranscript = "";
 let totalWordCount = 0;
 let isProcessingSegment = false;
-const runnerStartTime = Date.now();
+const runnerStartTime = process.env.RUN_START_TIME ? parseInt(process.env.RUN_START_TIME) : Date.now();
 
 const outputDir = path.join(__dirname, '../output');
 const chunksDir = path.join(outputDir, 'chunks');
@@ -54,7 +54,7 @@ const TZ_OFFSET_HOURS = 5;
 const TZ_OFFSET_MINS = 30; // IST
 
 let lastUIUpdate = 0;
-const UI_UPDATE_INTERVAL = 2500; // Liquid UI Speed
+const UI_UPDATE_INTERVAL = 2000; // Smoother UI updates
 
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
@@ -145,8 +145,6 @@ async function getGhostSignal() {
     } catch (e) { return null; }
 }
 
-const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
-
 async function getBotHostSignal() {
     try {
         const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
@@ -156,6 +154,16 @@ async function getBotHostSignal() {
         });
         return res.data ? res.data.signal : null;
     } catch (e) { return null; }
+}
+
+async function checkRecordSignal() {
+    const signal = await getBotHostSignal();
+    return signal === 'RECORD';
+}
+
+async function checkStopSignal() {
+    const signal = await getBotHostSignal();
+    return signal === 'STOP';
 }
 
 async function processLatestSegments() {
