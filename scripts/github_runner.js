@@ -228,7 +228,10 @@ async function generateMasterTranscript() {
     return null;
 }
 
+let isFinalized = false;
+
 const backgroundTaskInterval = setInterval(async () => {
+    if (isFinalized) return;
     const now = new Date();
     const startTime = parseTimeToToday(scheduledStart);
     const endTime = parseTimeToToday(scheduledEnd);
@@ -237,13 +240,18 @@ const backgroundTaskInterval = setInterval(async () => {
         if (shouldStop) await finalizeAndUpload(vncUrlGlobal);
         else await processLatestSegments();
     } else {
-        const recordSignal = await checkRecordSignal() || (startTime && now >= startTime);
+        if (endTime && now >= endTime) {
+            logger.info("Scheduled time has already passed. Concluding runner session.");
+            await finalizeAndUpload(vncUrlGlobal);
+            return;
+        }
+        const recordSignal = await checkRecordSignal() || (startTime && now >= startTime && (!endTime || now < endTime));
         if (recordSignal) await triggerStartRecording();
     }
 }, 3000); // 3s Smooth Polling
 
 async function triggerStartRecording() {
-    if (isRecording) return;
+    if (isRecording || isFinalized) return;
     isRecording = true;
     console.log("🔴 Auto-Start Engaged...");
     try {
@@ -255,7 +263,10 @@ async function triggerStartRecording() {
 }
 
 async function finalizeAndUpload(vncUrl) {
+    if (isFinalized) return;
+    isFinalized = true;
     isRecording = false;
+    clearInterval(backgroundTaskInterval);
     try {
         progressStatus = 'FINALIZING';
         targetProgress = 40;
