@@ -41,7 +41,7 @@ async function startRecording() {
 
     logger.info("Initializing HD Real-Time Segmenting Capture on :99...");
 
-    // Segmenting Command: 15-minute parts to prevent huge single files, but small enough for Telegram
+    // Telegram-Compatible HD Segmenting: H.264 Main Profile + FastStart for Instant In-Chat Playback
     ffmpegProcess = spawn('ffmpeg', [
         '-f', 'x11grab',
         '-video_size', '1920x1080',
@@ -52,15 +52,19 @@ async function startRecording() {
         '-map', '0:v',
         '-map', '1:a',
         '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-crf', '26',
+        '-preset', 'veryfast',
+        '-profile:v', 'main',
+        '-level', '4.0',
         '-pix_fmt', 'yuv420p',
+        '-crf', '25',
         '-c:a', 'aac',
         '-b:a', '128k',
+        '-ar', '44100',
+        '-ac', '2',
         '-f', 'segment',
         '-segment_time', '900', // 15 mins
         '-reset_timestamps', '1',
-        '-movflags', '+faststart',
+        '-segment_format_options', 'movflags=+faststart',
         '-y', path.join(chunksDir, 'GHOST_part_%03d.mp4')
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
 

@@ -191,6 +191,9 @@ async function processLatestSegments() {
                 }
 
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
+                    supports_streaming: true,
+                    width: 1920,
+                    height: 1080,
                     caption: `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${latestTranscript.substring(0, 500)}`
                 }).catch(() => {});
 
@@ -277,6 +280,9 @@ async function finalizeAndUpload(vncUrl) {
         for (const file of allFiles) {
             if (!processedSegments.has(file)) {
                 await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(path.join(chunksDir, file)) }, {
+                    supports_streaming: true,
+                    width: 1920,
+                    height: 1080,
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size + 1}`
                 }).catch(() => {});
                 processedSegments.add(file);
