@@ -5,7 +5,7 @@ on:
     types: [start_ghost_runner]
 
 concurrency:
-  group: ghost_meet_session
+  group: ghost_meet_${{ github.event.client_payload.chat_id }}_${{ github.event.client_payload.slot }}
   cancel-in-progress: true
 
 permissions:
@@ -61,7 +61,7 @@ jobs:
         run: npm install --no-audit --no-fund --quiet --prefer-offline
 
       - name: Fast Python Install
-        run: pip install SpeechRecognition indic-transliteration --break-system-packages --quiet
+        run: pip install SpeechRecognition indic-transliteration openai-whisper setuptools-rust --break-system-packages --quiet
 
       - name: Initialize Display & Audio & Visual Bridge
         env:
@@ -97,12 +97,15 @@ jobs:
           ALLOWED_GROUP_ID: ${{ secrets.ALLOWED_GROUP_ID }}
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHOST_API_KEY: ${{ secrets.GHOST_API_KEY }}
+          BOT_SERVER_URL: ${{ secrets.BOT_SERVER_URL }}
           GITHUB_OWNER: ${{ github.repository_owner }}
           GITHUB_REPO: ${{ github.event.repository.name }}
           MEETING_URL: ${{ github.event.client_payload.meeting_url }}
           DISPLAY_NAME: ${{ github.event.client_payload.display_name }}
           PLAYER_MESSAGE_ID: ${{ github.event.client_payload.player_message_id }}
           CHAT_ID: ${{ github.event.client_payload.chat_id }}
+          SLOT: ${{ github.event.client_payload.slot }}
           SCHEDULED_START: ${{ github.event.client_payload.scheduled_start }}
           SCHEDULED_END: ${{ github.event.client_payload.scheduled_end }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
