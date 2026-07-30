@@ -283,7 +283,7 @@ async function handleJoin(ctx, slot = 1) {
     session.runnerIsLive = false;
 
     const player = ui.generatePlayerUI({
-        status: start ? 'SCHEDULED' : 'INITIALIZING',
+        status: 'INITIALIZING',
         progress: 1,
         meetingUrl: url,
         schedule: session.schedule,
@@ -295,7 +295,7 @@ async function handleJoin(ctx, slot = 1) {
 
     // Start Bot-Side Startup Timer (updates until runner is live)
     const startupInterval = setInterval(async () => {
-        if (session.runnerIsLive || !session.isJoined || !!start) {
+        if (session.runnerIsLive || !session.isJoined) {
             clearInterval(startupInterval);
             return;
         }
@@ -319,7 +319,7 @@ async function handleJoin(ctx, slot = 1) {
     try {
         await github.triggerRunner(url, session.playerMessageId, chatId, displayName, start, end, slot, session.startTime);
         const dispatchedUI = ui.generatePlayerUI({
-            status: start ? 'SCHEDULED' : 'DEPLOYING',
+            status: 'DEPLOYING',
             progress: 3,
             meetingUrl: url,
             schedule: session.schedule,
