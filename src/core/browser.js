@@ -437,8 +437,11 @@ async function launchMeeting(url, customDisplayName = null) {
             headless: false,
             executablePath: browserPath,
             ignoreDefaultArgs: [
+                '--disable-extensions',
+                '--disable-component-update',
                 '--disable-component-extensions-with-background-pages',
-                '--disable-default-apps'
+                '--disable-default-apps',
+                '--disable-client-side-phishing-detection'
             ],
             args: [
                 `--user-data-dir=${userDataDir}`,
@@ -506,6 +509,7 @@ async function launchMeeting(url, customDisplayName = null) {
             }
 
             // 3. Languages, Platform & Hardware info (Consistent with Linux UA)
+            Object.defineProperty(navigator, 'vendor', { get: () => 'Google Inc.' });
             Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en', 'hi'] });
             Object.defineProperty(navigator, 'platform', { get: () => 'Linux x86_64' });
             Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => 8 });

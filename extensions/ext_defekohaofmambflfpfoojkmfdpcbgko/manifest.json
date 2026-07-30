@@ -1,0 +1,30 @@
+{
+"update_url": "https://clients2.google.com/service/update2/crx",
+
+   "name": "YouTube DJ effects / EQ / Volume Booster / Bass Booster",
+   "description": "This extension brings DJ tools such Equalizer, Volume Booster, Sound Effects, to YouTube but also any other website!",
+   "version": "121",
+   "manifest_version": 3,
+   "minimum_chrome_version": "116",
+   "action": {
+      "default_popup": "popup.html",
+      "default_icon": {
+      "128": "icons/128x128.png",
+      "16": "icons/16x16.png",
+      "32": "icons/32x32.png",
+      "64": "icons/64x64.png",
+      "48": "icons/48x48.png"
+      }
+   },
+   "background": {
+    "service_worker": "service.min.js"
+   },
+   "permissions": ["tabCapture", "offscreen"],
+   "icons": {
+     "128": "icons/128x128.png",
+     "16": "icons/16x16.png",
+     "32": "icons/32x32.png",
+     "64": "icons/64x64.png",
+     "48": "icons/48x48.png"
+   }
+}

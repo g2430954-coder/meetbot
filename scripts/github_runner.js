@@ -229,9 +229,10 @@ async function generateMasterTranscript() {
 }
 
 let isFinalized = false;
+let isDeploymentComplete = false;
 
 const backgroundTaskInterval = setInterval(async () => {
-    if (isFinalized) return;
+    if (isFinalized || !isDeploymentComplete) return;
     const now = new Date();
     const startTime = parseTimeToToday(scheduledStart);
     const endTime = parseTimeToToday(scheduledEnd);
@@ -251,7 +252,7 @@ const backgroundTaskInterval = setInterval(async () => {
 }, 3000); // 3s Smooth Polling
 
 async function triggerStartRecording() {
-    if (isRecording || isFinalized) return;
+    if (isRecording || isFinalized || !isDeploymentComplete) return;
     isRecording = true;
     console.log("🔴 Auto-Start Engaged...");
     try {
@@ -328,6 +329,7 @@ async function run() {
 
         targetProgress = 100;
         visualProgress = 100;
+        isDeploymentComplete = true;
         progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
         systemLogs.push(`Identity: ${activeParticipantName}`);
 
