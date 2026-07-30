@@ -121,8 +121,23 @@ async function stopRecording() {
     }
 }
 
+/**
+ * Remuxes video segment with +faststart and proper duration headers for Telegram
+ */
+async function preparePlayableVideo(videoPath, outputPath) {
+    try {
+        if (!fs.existsSync(videoPath)) return videoPath;
+        execSync(`ffmpeg -i "${videoPath}" -c copy -movflags +faststart -y "${outputPath}" 2>/dev/null`);
+        return fs.existsSync(outputPath) ? outputPath : videoPath;
+    } catch (e) {
+        logger.error(`Video FastStart Remux Notice: ${e.message}`);
+        return videoPath;
+    }
+}
+
 module.exports = {
     startRecording,
     stopRecording,
-    extractAudio
+    extractAudio,
+    preparePlayableVideo
 };

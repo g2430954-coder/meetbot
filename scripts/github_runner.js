@@ -190,12 +190,18 @@ async function processLatestSegments() {
                     }
                 }
 
-                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(filePath) }, {
+                const playablePath = path.join(outputDir, `stream_${file}`);
+                const finalVideoPath = await recorder.preparePlayableVideo(filePath, playablePath);
+                const captionText = latestTranscript ? latestTranscript.substring(0, 500) : "Speech capture active...";
+
+                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(finalVideoPath) }, {
                     supports_streaming: true,
                     width: 1920,
                     height: 1080,
-                    caption: `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${latestTranscript.substring(0, 500)}`
+                    caption: `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${captionText}`
                 }).catch(() => {});
+
+                if (fs.existsSync(playablePath)) fs.removeSync(playablePath);
 
                 processedSegments.add(file);
                 if (fs.existsSync(audioPath)) fs.removeSync(audioPath);
@@ -279,13 +285,18 @@ async function finalizeAndUpload(vncUrl) {
         const allFiles = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
         for (const file of allFiles) {
             if (!processedSegments.has(file)) {
-                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(path.join(chunksDir, file)) }, {
+                const rawPath = path.join(chunksDir, file);
+                const playablePath = path.join(outputDir, `stream_${file}`);
+                const finalVideoPath = await recorder.preparePlayableVideo(rawPath, playablePath);
+
+                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(finalVideoPath) }, {
                     supports_streaming: true,
                     width: 1920,
                     height: 1080,
                     caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size + 1}`
                 }).catch(() => {});
                 processedSegments.add(file);
+                if (fs.existsSync(playablePath)) fs.removeSync(playablePath);
             }
         }
         const finalPath = await generateMasterTranscript();
