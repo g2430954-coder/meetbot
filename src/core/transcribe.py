@@ -1,37 +1,44 @@
 import sys
 import os
-import speech_recognition as sr
 import wave
 import contextlib
 import time
+import requests
 
 # Try to import Whisper for High-Quality Local STT
 try:
     import whisper
     import torch
     HAS_WHISPER = True
-    # Load model once at module level (using 'base' for speed vs accuracy balance)
     WHISPER_MODEL = whisper.load_model("base")
-except ImportError:
+except Exception as e:
     HAS_WHISPER = False
+
+# Try to import SpeechRecognition for Fallback
+try:
+    import speech_recognition as sr
+    HAS_SR = True
+except Exception:
+    HAS_SR = False
 
 # Try to import transliteration library for Hinglish mode
 try:
     from indic_transliteration import sanscript
     from indic_transliteration.sanscript import transliterate
     HAS_TRANSLIT = True
-except ImportError:
+except Exception:
     HAS_TRANSLIT = False
 
 CHUNK_DURATION = 20  # 20s speech frames
-OVERLAP = 10         # 10s overlap (50%) for DeepScan coverage
 
 def get_audio_duration(audio_file):
-    with contextlib.closing(wave.open(audio_file, 'r')) as f:
-        frames = f.getnframes()
-        rate = f.getframerate()
-        duration = frames / float(rate)
-        return duration
+    try:
+        with contextlib.closing(wave.open(audio_file, 'r')) as f:
+            frames = f.getnframes()
+            rate = f.getframerate()
+            return frames / float(rate)
+    except Exception:
+        return 0
 
 def convert_to_hinglish(text):
     """Convert Devanagari text to Hinglish (Romanized)"""
@@ -44,129 +51,115 @@ def convert_to_hinglish(text):
         if has_devanagari:
             return transliterate(text, sanscript.DEVANAGARI, sanscript.ITRANS).lower()
         return text
-    except Exception as e:
-        print(f"Transliteration Error: {e}")
+    except Exception:
         return text
 
+def transcribe_with_cloud_api(audio_file):
+    """Transcribe using Groq or OpenAI Cloud API if API Key is present"""
+    groq_key = os.getenv("GROQ_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+
+    if groq_key:
+        try:
+            url = "https://api.groq.com/openai/v1/audio/transcriptions"
+            headers = {"Authorization": f"Bearer {groq_key}"}
+            with open(audio_file, "rb") as f:
+                files = {"file": (os.path.basename(audio_file), f, "audio/wav")}
+                data = {"model": "whisper-large-v3"}
+                res = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+                if res.status_code == 200:
+                    text = res.json().get("text", "")
+                    return convert_to_hinglish(text)
+        except Exception as e:
+            print(f"Groq API Error: {e}")
+
+    if openai_key:
+        try:
+            url = "https://api.openai.com/v1/audio/transcriptions"
+            headers = {"Authorization": f"Bearer {openai_key}"}
+            with open(audio_file, "rb") as f:
+                files = {"file": (os.path.basename(audio_file), f, "audio/wav")}
+                data = {"model": "whisper-1"}
+                res = requests.post(url, headers=headers, files=files, data=data, timeout=30)
+                if res.status_code == 200:
+                    text = res.json().get("text", "")
+                    return convert_to_hinglish(text)
+        except Exception as e:
+            print(f"OpenAI API Error: {e}")
+
+    return None
+
 def transcribe_with_whisper(audio_file):
-    """Transcription using OpenAI Whisper (Local)"""
+    """Transcription using OpenAI Whisper (Local AI Engine)"""
     if not HAS_WHISPER:
         return None
     try:
-        result = WHISPER_MODEL.transcribe(audio_file, language="hi", task="transcribe")
-        return convert_to_hinglish(result["text"])
+        # Automatic language detection (Hindi + English + Hinglish dynamic recognition)
+        result = WHISPER_MODEL.transcribe(audio_file, task="transcribe")
+        text = result.get("text", "").strip()
+        return convert_to_hinglish(text)
     except Exception as e:
-        print(f"Whisper Error: {e}")
+        print(f"Whisper Local Error: {e}")
         return None
 
-def transcribe_with_google(audio_chunk, recognizer):
+def transcribe_with_google(audio_file):
     """Fallback transcription using Google Speech Recognition"""
-    languages = ['hi-IN', 'en-IN', 'en-US', 'hi']
-    for lang in languages:
-        try:
-            raw_text = recognizer.recognize_google(audio_chunk, language=lang)
-            if raw_text and len(raw_text.strip()) > 1:
-                return convert_to_hinglish(raw_text)
-        except (sr.UnknownValueError, sr.RequestError):
-            continue
+    if not HAS_SR:
+        return None
+    recognizer = sr.Recognizer()
+    recognizer.energy_threshold = 30
+    recognizer.dynamic_energy_threshold = False
+    try:
+        with sr.AudioFile(audio_file) as source:
+            audio_chunk = recognizer.record(source)
+            for lang in ['hi-IN', 'en-IN', 'en-US']:
+                try:
+                    raw_text = recognizer.recognize_google(audio_chunk, language=lang)
+                    if raw_text and len(raw_text.strip()) > 1:
+                        return convert_to_hinglish(raw_text)
+                except Exception:
+                    continue
+    except Exception as e:
+        print(f"Google SR Fallback Error: {e}")
     return None
-
-def deduplicate_text(current_lines, new_text):
-    """Simple check to avoid double-printing overlapping speech"""
-    if not current_lines or not new_text:
-        return new_text
-
-    last_line = current_lines[-1].split(']', 1)[-1].strip().lower()
-    new_clean = new_text.strip().lower()
-
-    # If the new text is already largely contained in the last line, skip or trim
-    if new_clean in last_line or last_line in new_clean:
-        if len(new_clean) > len(last_line):
-            return new_text # Keep the longer version
-        return "" # Skip duplicate
-
-    return new_text
 
 def run_transcription(audio_file, output_file, is_master=False):
     if not os.path.exists(audio_file):
         print(f"ERROR: Audio file {audio_file} not found.")
         return
 
-    try:
-        duration = get_audio_duration(audio_file)
-        mode_str = "DEEPSCAN (HQ)" if is_master else "SEGMENT"
-        engine_str = "WHISPER" if HAS_WHISPER else "GOOGLE_FALLBACK"
-        print(f"GHOST meet STT [{mode_str}] via {engine_str}: Processing {duration:.2f}s audio...")
-    except Exception as e:
-        print(f"Warning: Could not determine duration: {e}")
-        duration = None
+    duration = get_audio_duration(audio_file)
+    mode_str = "DEEPSCAN (HQ)" if is_master else "SEGMENT"
+    print(f"✨ GHOST meet STT [{mode_str}]: Processing {duration:.2f}s audio...")
 
-    # Initialize output file
-    if not os.path.exists(output_file):
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write("━━━━━━━━━━━━━━━━━━━━━━\n")
-            f.write(f"✨ GHOST meet | AI TRANSCRIPTION ({mode_str})\n")
-            f.write("━━━━━━━━━━━━━━━━━━━━━━\n\n")
+    extracted_text = None
 
-    # If in master mode and Whisper is available, process the whole file at once
-    if is_master and HAS_WHISPER:
-        full_text = transcribe_with_whisper(audio_file)
-        if full_text:
-            with open(output_file, 'a', encoding='utf-8') as f:
-                f.write(full_text + "\n")
-            print(f"SUCCESS: Master transcript (Whisper) saved to {output_file}")
-            return
+    # 1. Try Cloud AI API (Groq / OpenAI) if key is provided
+    extracted_text = transcribe_with_cloud_api(audio_file)
 
-    recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 25 if is_master else 45
-    recognizer.dynamic_energy_threshold = False
-    recognizer.pause_threshold = 1.0
+    # 2. Try Local OpenAI Whisper AI
+    if not extracted_text:
+        extracted_text = transcribe_with_whisper(audio_file)
 
-    try:
-        with sr.AudioFile(audio_file) as source:
-            offset = 0
-            lines_written = []
+    # 3. Fallback to Google SR
+    if not extracted_text:
+        extracted_text = transcribe_with_google(audio_file)
 
-            while True:
-                if duration and offset >= duration:
-                    break
+    if not extracted_text or not extracted_text.strip():
+        extracted_text = "No clear speech detected in segment."
 
-                print(f"STT: Scanning window at {offset}s...")
-                try:
-                    audio_chunk = recognizer.record(source, duration=CHUNK_DURATION)
-                except EOFError:
-                    break
+    extracted_text = extracted_text.strip()
 
-                if not audio_chunk or not audio_chunk.frame_data:
-                    break
-                        
-                # Attempt Google fallback (Whisper is better for whole files, Google handles chunks well)
-                chunk_text = transcribe_with_google(audio_chunk, recognizer)
+    # Save to output file
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write("━━━━━━━━━━━━━━━━━━━━━━\n")
+        f.write(f"✨ GHOST meet | AI TRANSCRIPTION ({mode_str})\n")
+        f.write("━━━━━━━━━━━━━━━━━━━━━━\n\n")
+        f.write(extracted_text + "\n")
 
-                if chunk_text and chunk_text.strip():
-                    unique_text = deduplicate_text(lines_written, chunk_text.strip())
-                    if unique_text:
-                        timestamp = f"[{int(offset/60)}:{int(offset%60):02d}]"
-                        line = f"{timestamp} {unique_text}"
-                        with open(output_file, 'a', encoding='utf-8') as f:
-                            f.write(line + "\n")
-                        lines_written.append(line)
-
-                # DeepScan Overlap
-                offset += (CHUNK_DURATION - OVERLAP)
-                if CHUNK_DURATION <= OVERLAP: offset += 1
-
-        if is_master:
-            with open(output_file, 'a', encoding='utf-8') as f:
-                f.write("\n━━━━━━━━━━━━━━━━━━━━━━\n")
-                f.write(f"SYSTEM: DEEPSCAN COMPLETE\n")
-
-        print(f"SUCCESS: Transcript saved to {output_file}")
-
-    except Exception as e:
-        print(f"STT CRITICAL ERROR: {str(e)}")
-        with open(output_file, 'a', encoding='utf-8') as f:
-            f.write(f"\n🚨 STT ERROR: {str(e)}\n")
+    # Print extracted text to stdout so Node.js transcriber receives it
+    print(extracted_text)
+    print(f"SUCCESS: Transcript saved to {output_file}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

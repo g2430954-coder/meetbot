@@ -20,8 +20,8 @@ RUN apt-get update && apt-get install -y \
     && apt-get update && apt-get install -y google-chrome-stable \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python speech recognition
-RUN pip3 install --break-system-packages SpeechRecognition
+# Install Python speech recognition & OpenAI Whisper AI
+RUN pip3 install --break-system-packages SpeechRecognition indic-transliteration openai-whisper requests setuptools-rust
 
 # Create app directory
 WORKDIR /usr/src/app
