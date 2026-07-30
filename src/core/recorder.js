@@ -87,17 +87,25 @@ async function extractAudio(videoPath, audioPath) {
  */
 async function stopRecording() {
     if (ffmpegProcess) {
-        logger.info("Stopping FFMPEG process...");
-        if (ffmpegProcess.stdin && !ffmpegProcess.stdin.destroyed && ffmpegProcess.stdin.writable) {
-            try { ffmpegProcess.stdin.write('q'); } catch (e) {}
-        }
+        logger.info("Stopping FFMPEG process gracefully...");
+        try {
+            if (ffmpegProcess.stdin && !ffmpegProcess.stdin.destroyed && ffmpegProcess.stdin.writable) {
+                ffmpegProcess.stdin.write('q');
+            }
+        } catch (e) {}
+
         await new Promise((resolve) => {
             const timeout = setTimeout(() => {
-                if (ffmpegProcess) try { ffmpegProcess.kill('SIGKILL'); } catch (e) {}
+                if (ffmpegProcess) {
+                    logger.warn("FFMPEG force killing...");
+                    try { ffmpegProcess.kill('SIGKILL'); } catch (e) {}
+                }
                 resolve();
-            }, 3000);
+            }, 5000);
+
             ffmpegProcess.on('exit', () => {
                 clearTimeout(timeout);
+                logger.info("FFMPEG exited cleanly.");
                 resolve();
             });
         });

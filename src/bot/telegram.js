@@ -11,51 +11,63 @@ dotenv.config();
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const ALLOWED_GROUPS = (process.env.ALLOWED_GROUPS || process.env.ALLOWED_GROUP_ID || "").split(',').map(id => id.trim());
 
-// Global session state
-let activeSignal = 'NONE';
-
-const sessionState = {
-    isJoined: false,
-    isRecording: false,
-    currentUrl: null,
-    currentChatId: null,
-    playerMessageId: null,
-    vncUrl: null,
-    monitorInterval: null,
-    lastActionTime: 0,
-    schedule: { start: null, end: null }
-};
-
-// Deduplication Cache
-const processedUpdates = new Map();
+// Global session state replaced with Map for Multi-Session Support
+const sessions = new Map();
+const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
 
 /**
- * Throttled Edit Guard to prevent 429 errors
+ * Helper to get or initialize session state for a specific chat and slot
  */
-async function throttledEdit(ctx, text, markup) {
-    const now = Date.now();
-    if (now - sessionState.lastActionTime < 3500) {
-        await new Promise(r => setTimeout(r, 3500 - (now - sessionState.lastActionTime)));
+function getSession(chatId, slot = 1) {
+    const key = `${chatId}_${slot}`;
+    if (!sessions.has(key)) {
+        sessions.set(key, {
+            slot: slot,
+            isJoined: false,
+            isRecording: false,
+            currentUrl: null,
+            title: null,
+            playerMessageId: null,
+            vncUrl: null,
+            monitorInterval: null,
+            lastActionTime: 0,
+            schedule: { start: null, end: null },
+            activeSignal: 'NONE'
+        });
     }
-    sessionState.lastActionTime = Date.now();
+    return sessions.get(key);
+}
 
-    if (sessionState.playerMessageId) {
+/**
+ * Throttled Edit Guard to prevent 429 errors (Per-Session Slot)
+ */
+async function throttledEdit(ctx, text, markup, slot = 1) {
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    const now = Date.now();
+
+    if (now - session.lastActionTime < 3500) {
+        await new Promise(r => setTimeout(r, 3500 - (now - session.lastActionTime)));
+    }
+    session.lastActionTime = Date.now();
+
+    if (session.playerMessageId) {
         try {
-            return await ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
+            return await ctx.telegram.editMessageText(chatId, Number(session.playerMessageId), undefined, text, {
                 parse_mode: 'Markdown', ...markup
             });
         } catch (e) {
             if (e.description && e.description.includes("message is not modified")) return;
             if (e.description && e.description.includes("Too Many Requests")) {
                 const wait = (parseInt(e.description.match(/\d+/)?.[0]) || 5) + 1;
-                logger.warn(`Telegram 429 Rate Limit. Backing off ${wait}s before edit retry...`);
+                logger.warn(`Telegram 429 Rate Limit [Slot ${slot}]. Backing off ${wait}s...`);
                 await new Promise(r => setTimeout(r, wait * 1000));
-                sessionState.lastActionTime = Date.now();
-                return ctx.telegram.editMessageText(ctx.chat.id, Number(sessionState.playerMessageId), undefined, text, {
+                session.lastActionTime = Date.now();
+                return ctx.telegram.editMessageText(chatId, Number(session.playerMessageId), undefined, text, {
                     parse_mode: 'Markdown', ...markup
                 }).catch(() => {});
             }
-            logger.error("Throttled Edit Error:", e.message);
+            logger.error(`Throttled Edit Error [Slot ${slot}]:`, e.message);
         }
     }
 }
@@ -82,10 +94,10 @@ function convertTo24Hour(timeStr) {
 }
 
 /**
- * Helper to extract meeting URL, start time, and end time from text
+ * Helper to extract meeting URL, Title, and optionally start/end times
  */
 function parseJoinParams(text) {
-    if (!text) return { url: null, displayName: null, start: null, end: null };
+    if (!text) return { url: null, title: null, displayName: null, start: null, end: null };
     text = text.trim();
 
     let commandText = text;
@@ -97,7 +109,7 @@ function parseJoinParams(text) {
     const timeRegex = /\b(\d{1,2}:\d{2}(?:\s*[ap]m)?)\b/gi;
     const times = commandText.match(timeRegex) || [];
 
-    // Remove times from command text to extract URL and Name
+    // Remove times from command text to extract URL, Title and Name
     let remainingText = commandText;
     times.forEach(t => {
         remainingText = remainingText.replace(t, '');
@@ -115,9 +127,15 @@ function parseJoinParams(text) {
         }
     }
 
+    // The first part after the URL is considered the TITLE (Mandatory)
+    // The rest is considered the Display Name (Optional)
+    const title = otherParts[0] || null;
+    const displayName = otherParts.slice(1).join(' ').trim() || null;
+
     return {
         url,
-        displayName: otherParts.join(' ').trim() || null,
+        title,
+        displayName,
         start: times[0] ? convertTo24Hour(times[0].trim()) : null,
         end: times[1] ? convertTo24Hour(times[1].trim()) : null
     };
@@ -173,11 +191,11 @@ bot.start((ctx) => {
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
         "Status: ✅ *KERNEL OPERATIONAL*\n\n" +
         "📋 *Primary Command Syntax:*\n" +
-        "🔹 `/join <url> [name] [start] [end]`\n\n" +
+        "🔹 `/join <url> <title> [name] [start] [end]`\n\n" +
         "💡 *Scheduling Examples:*\n" +
-        "• _Manual_: `/join https://meet.com/abc` (Control via buttons)\n" +
-        "• _Auto-Pilot_: `/join https://meet.com/abc 2:00 PM 3:30 PM` (Full automatic cycle)\n" +
-        "• _24h Format_: `/join https://meet.com/abc 14:00 15:30` \n\n" +
+        "• _Manual_: `/join https://meet.com/abc Daily_Sync` \n" +
+        "• _Auto-Pilot_: `/join https://meet.com/abc Sync 2:00 PM 3:30 PM` \n" +
+        "• _24h Format_: `/join https://meet.com/abc Meeting 14:00 15:30` \n\n" +
         "Use /help for detailed operational manual.";
 
     ctx.replyWithMarkdown(welcomeUI, Markup.inlineKeyboard([
@@ -194,19 +212,17 @@ bot.help((ctx) => {
         "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
         "1️⃣ *Deploying the Bot*\n" +
-        "Send the Google Meet link to this group. The bot will automatically trigger a cloud runner.\n\n" +
+        "Send the Google Meet link and a title. The bot will trigger a cloud runner.\n" +
+        "Syntax: `/join <url> <title>`\n\n" +
         "2️⃣ *Scheduling (Optional)*\n" +
         "To record automatically, include start and end times:\n" +
-        "`/join <url> 10:00 AM 11:30 AM` \n" +
-        "• The bot will join immediately to 'standby'.\n" +
-        "• Recording starts exactly at the start time.\n" +
-        "• Recording stops and uploads exactly at the end time.\n\n" +
-        "3️⃣ *Manual Control*\n" +
+        "`/join <url> <title> 10:00 AM 11:30 AM` \n\n" +
+        "3️⃣ *Flow Monitoring*\n" +
+        "Use `/flows` to see how many meetings are active globally.\n\n" +
+        "4️⃣ *Manual Control*\n" +
         "If no time is set, use the interactive buttons in the Terminal:\n" +
         "• `START CAPTURE`: Begins 1080p recording.\n" +
-        "• `TERMINATE & SAVE`: Stops, splits video, and sends transcript.\n\n" +
-        "4️⃣ *Multi-Group Usage*\n" +
-        "This bot can be authorized for multiple groups. Contact admin to add your Group ID to the kernel.";
+        "• `TERMINATE & SAVE`: Stops, splits video, and sends transcript.";
 
     ctx.replyWithMarkdown(helpUI);
 });
@@ -214,190 +230,254 @@ bot.help((ctx) => {
 /**
  * Resets the session state for a fresh start
  */
-function resetSession() {
-    activeSignal = 'NONE';
-    sessionState.isJoined = false;
-    sessionState.isRecording = false;
-    sessionState.currentUrl = null;
-    sessionState.playerMessageId = null;
-    sessionState.vncUrl = null;
-    sessionState.schedule = { start: null, end: null };
-    if (sessionState.monitorInterval) clearInterval(sessionState.monitorInterval);
+function resetSession(chatId) {
+    const session = getSession(chatId);
+    session.activeSignal = 'NONE';
+    session.isJoined = false;
+    session.isRecording = false;
+    session.currentUrl = null;
+    session.playerMessageId = null;
+    session.vncUrl = null;
+    session.schedule = { start: null, end: null };
+    if (session.monitorInterval) {
+        clearInterval(session.monitorInterval);
+        session.monitorInterval = null;
+    }
 }
 
 /**
- * /join <url> [displayName] [start] [end] - Deploy visual engine
+ * Handle Join command for specific slots
  */
-bot.command('join', async (ctx) => {
-    const { url, displayName, start, end } = parseJoinParams(ctx.message.text);
+async function handleJoin(ctx, slot = 1) {
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    const { url, title, displayName, start, end } = parseJoinParams(ctx.message.text);
+
     if (!url) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
+    if (!title) return ctx.replyWithMarkdown(`❌ *Error:* Meeting Title is MANDATORY.\nSyntax: \`/join${slot === 1 ? '' : slot} <url> <title>\``);
 
-    // Auto-reset if in completed/error state
-    if (!sessionState.isRecording && sessionState.isJoined === false) {
-        resetSession();
-    } else if (sessionState.isJoined) {
-        return ctx.replyWithMarkdown("⚠️ *Active Session Exists*. Use `/stop` first.");
+    if (session.isJoined) {
+        return ctx.replyWithMarkdown(`⚠️ *Active Session in Slot ${slot} Exists*. Use \`/stop${slot === 1 ? '' : slot}\` first.`);
     }
 
-    sessionState.currentUrl = url;
-    sessionState.currentChatId = ctx.chat.id;
-    sessionState.isJoined = true;
-    sessionState.schedule = { start, end };
-
-    if (start && !end) {
-        ctx.replyWithMarkdown("💡 *Tip:* You provided a start time but no end time. The bot will start recording at your scheduled time, but you will need to stop it manually.");
-    }
+    resetSession(chatId, slot);
+    session.currentUrl = url;
+    session.title = title;
+    session.isJoined = true;
+    session.schedule = { start, end };
 
     const player = ui.generatePlayerUI({
         status: start ? 'SCHEDULED' : 'INITIALIZING',
         progress: 1,
         meetingUrl: url,
-        schedule: sessionState.schedule
+        schedule: session.schedule,
+        slot: slot
     });
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
-    sessionState.playerMessageId = msg.message_id;
+    session.playerMessageId = msg.message_id;
 
     try {
-        await github.triggerRunner(url, sessionState.playerMessageId, ctx.chat.id.toString(), displayName, start, end);
+        await github.triggerRunner(url, session.playerMessageId, chatId, displayName, start, end, slot);
         const dispatchedUI = ui.generatePlayerUI({
             status: start ? 'SCHEDULED' : 'DEPLOYING',
             progress: 3,
             meetingUrl: url,
-            schedule: sessionState.schedule
+            schedule: session.schedule,
+            slot: slot
         });
-        await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup);
-        startWorkflowMonitor(ctx);
+        await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup, slot);
+        startWorkflowMonitor(ctx, slot);
     } catch (error) {
-        sessionState.isJoined = false;
-        const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: url });
-        await throttledEdit(ctx, errorUI.text + `\n\n🚨 *Failure:* ${error.message}`, { parse_mode: 'Markdown' });
+        session.isJoined = false;
+        const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: url, slot: slot });
+        await throttledEdit(ctx, errorUI.text + `\n\n🚨 *Failure:* ${error.message}`, { parse_mode: 'Markdown' }, slot);
     }
+}
+
+bot.command(['join', 'join1', 'join2', 'join3', 'join4', 'join5', 'join6', 'join7', 'join8', 'join9'], async (ctx) => {
+    const match = ctx.message.text.match(/\/join(\d)?/);
+    const slot = match && match[1] ? parseInt(match[1]) : 1;
+    return handleJoin(ctx, slot);
 });
 
 /**
  * Handle Record execution
  */
-async function handleRecord(ctx) {
-    if (sessionState.isRecording) return;
+async function handleRecord(ctx, slot = 1) {
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    if (session.isRecording) return;
 
-    sessionState.isRecording = true;
-    activeSignal = 'RECORD';
+    session.isRecording = true;
+    session.activeSignal = 'RECORD';
 
     const startingUI = ui.generatePlayerUI({
         status: 'RECORDING',
-        meetingUrl: sessionState.currentUrl,
+        meetingUrl: session.currentUrl,
         progress: 100,
-        logs: ["Manual Override: Starting capture...", "Engaging engine..."]
+        logs: ["Manual Override: Starting capture...", "Engaging engine..."],
+        slot: slot
     });
 
-    await throttledEdit(ctx, startingUI.text, startingUI.markup);
+    await throttledEdit(ctx, startingUI.text, startingUI.markup, slot);
 
-    if (sessionState.vncUrl) {
+    if (session.vncUrl) {
         try {
-            const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
+            const baseUrl = session.vncUrl.split('/vnc.html')[0];
             const axios = require('axios');
             axios.get(`${baseUrl}/record`, { timeout: 5000 }).catch(() => {});
         } catch (e) {}
     }
 
     try {
-        await github.triggerRecordRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
+        await github.triggerRecordRunner(chatId, session.playerMessageId);
     } catch (error) {
-        logger.error("GitHub Record Trigger Notice:", error.message);
+        logger.error(`GitHub Record Trigger Notice [Slot ${slot}]:`, error.message);
     }
 }
 
-bot.command('record', handleRecord);
-bot.action('cmd_record', async (ctx) => {
+bot.command(['record', 'record1', 'record2', 'record3', 'record4', 'record5', 'record6', 'record7', 'record8', 'record9'], (ctx) => {
+    const match = ctx.message.text.match(/\/record(\d)?/);
+    const slot = match && match[1] ? parseInt(match[1]) : 1;
+    return handleRecord(ctx, slot);
+});
+
+bot.action(/cmd_record_(\d+)/, async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) {}
-    return handleRecord(ctx);
+    const slot = parseInt(ctx.match[1]);
+    return handleRecord(ctx, slot);
 });
 
 /**
  * Handle Stop & Save execution
  */
-async function handleStop(ctx) {
-    sessionState.isRecording = false;
-    activeSignal = 'STOP';
+async function handleStop(ctx, slot = 1) {
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    if (!session.isJoined) return;
+
+    session.isRecording = false;
+    session.activeSignal = 'STOP';
 
     const stoppingUI = ui.generatePlayerUI({
         status: 'FINALIZING',
-        meetingUrl: sessionState.currentUrl,
+        meetingUrl: session.currentUrl,
         progress: 10,
-        logs: ["Manual Stop: Closing capture...", "Finalizing assets..."]
+        logs: ["Manual Stop: Closing capture...", "Finalizing assets..."],
+        slot: slot
     });
 
-    await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup);
+    await throttledEdit(ctx, stoppingUI.text, stoppingUI.markup, slot);
 
-    if (sessionState.vncUrl) {
+    if (session.vncUrl) {
         try {
-            const baseUrl = sessionState.vncUrl.split('/vnc.html')[0];
+            const baseUrl = session.vncUrl.split('/vnc.html')[0];
             const axios = require('axios');
             axios.get(`${baseUrl}/stop`, { timeout: 5000 }).catch(() => {});
         } catch (e) {}
     }
 
     try {
-        await github.triggerStopRunner(ctx.chat.id.toString(), sessionState.playerMessageId);
+        await github.triggerStopRunner(chatId, session.playerMessageId);
     } catch (error) {
-        logger.error("GitHub Stop Trigger Notice:", error.message);
+        logger.error(`GitHub Stop Trigger Notice [Slot ${slot}]:`, error.message);
     } finally {
         setTimeout(async () => {
-            sessionState.isJoined = false;
-            sessionState.isRecording = false;
-            await github.cancelAndDeleteRunningWorkflows().catch(() => {});
+            session.isJoined = false;
+            session.isRecording = false;
+            await github.cancelAndDeleteRunningWorkflows(chatId).catch(() => {});
         }, 15000);
     }
 }
 
-bot.command('stop', handleStop);
-bot.action('cmd_stop', async (ctx) => {
-    try { await ctx.answerCbQuery(); } catch (e) {}
-    return handleStop(ctx);
+bot.command(['stop', 'stop1', 'stop2', 'stop3', 'stop4', 'stop5', 'stop6', 'stop7', 'stop8', 'stop9'], (ctx) => {
+    const match = ctx.message.text.match(/\/stop(\d)?/);
+    const slot = match && match[1] ? parseInt(match[1]) : 1;
+    return handleStop(ctx, slot);
 });
 
-bot.action('cmd_new_session', async (ctx) => {
+bot.action(/cmd_stop_(\d+)/, async (ctx) => {
     try { await ctx.answerCbQuery(); } catch (e) {}
-    resetSession();
-    await github.cancelAndDeleteRunningWorkflows().catch(() => {});
-    return ctx.replyWithMarkdown("🔄 *Terminal Reset Complete.*\nActive workflows cleared.");
+    const slot = parseInt(ctx.match[1]);
+    return handleStop(ctx, slot);
 });
 
-bot.command('status', (ctx) => {
+bot.action(/cmd_new_session_(\d+)/, async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
+    const slot = parseInt(ctx.match[1]);
+    const chatId = ctx.chat.id.toString();
+    resetSession(chatId, slot);
+    await github.cancelAndDeleteRunningWorkflows(chatId).catch(() => {});
+    return ctx.replyWithMarkdown(`🔄 *Terminal Slot ${slot} Reset Complete.*\nActive workflows cleared.`);
+});
+
+bot.command(['status', 'status1', 'status2', 'status3', 'status4', 'status5', 'status6', 'status7', 'status8', 'status9'], (ctx) => {
+    const match = ctx.message.text.match(/\/status(\d)?/);
+    const slot = match && match[1] ? parseInt(match[1]) : 1;
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
     const diagnosticUI =
-        "📟 *SYSTEM DIAGNOSTICS*\n" +
+        `📟 *SYSTEM DIAGNOSTICS | SLOT #${slot}*\n` +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
-        `📍 Session: ${sessionState.isJoined ? "🟢 CONNECTED" : "🔴 DISCONNECTED"}\n` +
-        `⏺ Recording: ${sessionState.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE"}\n` +
+        `📍 Status: ${session.isJoined ? "🟢 CONNECTED" : "🔴 DISCONNECTED"}\n` +
+        `📝 Title: \`${session.title || 'N/A'}\`\n` +
+        `⏺ Recording: ${session.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE"}\n` +
         "⚡️ Kernel: *Operational*";
     ctx.replyWithMarkdown(diagnosticUI);
 });
 
-function startWorkflowMonitor(ctx) {
-    if (sessionState.monitorInterval) clearInterval(sessionState.monitorInterval);
-    sessionState.monitorInterval = setInterval(async () => {
-        if (!sessionState.isJoined) {
-            clearInterval(sessionState.monitorInterval);
+bot.command('flows', (ctx) => {
+    let activeCount = 0;
+    const activeFlows = [];
+
+    for (const [id, session] of sessions.entries()) {
+        if (session.isJoined) {
+            activeCount++;
+            activeFlows.push(`🔹 *${session.title || 'Untitled'}* (Chat ID: \`${id}\`)`);
+        }
+    }
+
+    let message = `📟 *ACTIVE ENGINE FLOWS: ${activeCount}*\n`;
+    message += "━━━━━━━━━━━━━━━━━━━━━━\n";
+    if (activeCount > 0) {
+        message += activeFlows.join('\n');
+    } else {
+        message += "⚪️ No active sessions found.";
+    }
+
+    ctx.replyWithMarkdown(message);
+});
+
+function startWorkflowMonitor(ctx, slot = 1) {
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    if (session.monitorInterval) clearInterval(session.monitorInterval);
+    session.monitorInterval = setInterval(async () => {
+        if (!session.isJoined) {
+            clearInterval(session.monitorInterval);
             return;
         }
         const isRunning = await github.isWorkflowRunning();
-        if (!isRunning && sessionState.isJoined) {
-            if (!sessionState.isRecording) {
-                 logger.warn("Workflow monitor detected runner is no longer active.");
-                 sessionState.isJoined = false;
-                 const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: sessionState.currentUrl });
-                 await throttledEdit(ctx, errorUI.text + "\n\n🚨 *Connection Lost:* The cloud runner went offline unexpectedly.", { parse_mode: 'Markdown' });
-                 clearInterval(sessionState.monitorInterval);
+        if (!isRunning && session.isJoined) {
+            if (!session.isRecording) {
+                 logger.warn(`Workflow monitor [Slot ${slot}] detected runner is offline.`);
+                 session.isJoined = false;
+                 const errorUI = ui.generatePlayerUI({ status: 'ERROR', meetingUrl: session.currentUrl, slot: slot });
+                 await throttledEdit(ctx, errorUI.text + "\n\n🚨 *Connection Lost:* The cloud runner went offline unexpectedly.", { parse_mode: 'Markdown' }, slot);
+                 clearInterval(session.monitorInterval);
             }
         }
     }, 30000);
 }
 
 // Inline Actions
-bot.action('engine_status', (ctx) => {
+bot.action(/engine_status_(\d+)/, (ctx) => {
     try { ctx.answerCbQuery(); } catch (e) {}
-    const recordingStatus = sessionState.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE";
-    ctx.replyWithMarkdown(`📟 *ENGINE DIAGNOSTICS*\nStatus: ${recordingStatus}`);
+    const slot = parseInt(ctx.match[1]);
+    const chatId = ctx.chat.id.toString();
+    const session = getSession(chatId, slot);
+    const recordingStatus = session.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE";
+    ctx.replyWithMarkdown(`📟 *ENGINE DIAGNOSTICS | SLOT #${slot}*\nStatus: ${recordingStatus}`);
 });
 
 bot.action('help_guide', (ctx) => {
@@ -406,35 +486,57 @@ bot.action('help_guide', (ctx) => {
         "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
         "1️⃣ *Deploying the Bot*\n" +
-        "Send the Google Meet link. The bot will trigger the runner.\n\n" +
+        "Send: `/join <url> <title>`\n\n" +
         "2️⃣ *Auto-Pilot Mode*\n" +
         "Set start and end times for full automation:\n" +
-        "`/join <url> 10:00 AM 11:30 AM` \n\n" +
-        "3️⃣ *Manual Mode*\n" +
-        "Use Terminal buttons if no time is set:\n" +
-        "• `START CAPTURE`: Begins HD recording.\n" +
-        "• `TERMINATE & SAVE`: Finalizes and uploads.";
+        "`/join <url> <title> 10:00 AM 11:30 AM` \n\n" +
+        "3️⃣ *Monitoring*\n" +
+        "Use `/flows` to see active engine count.";
 
     ctx.replyWithMarkdown(helpUI);
 });
 
 const app = express();
+
+// Security Middleware
+const authMiddleware = (req, res, next) => {
+    const key = req.query.key || req.headers['x-api-key'];
+    if (key !== GHOST_API_KEY) {
+        logger.warn(`Unauthorized access attempt from ${req.ip}`);
+        return res.status(401).json({ status: 'error', message: 'Unauthorized: Invalid API Key' });
+    }
+    next();
+};
+
 app.get('/', (req, res) => res.status(200).send('GHOST meet Engine Active'));
 app.get('/ping', (req, res) => res.status(200).json({ status: 'active', message: 'PONG', timestamp: new Date().toISOString() }));
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime(), session: sessionState.isJoined ? 'CONNECTED' : 'IDLE' }));
-app.get('/get_signal', (req, res) => res.json({ status: 'ok', signal: activeSignal }));
-app.get('/set_signal', (req, res) => {
-    if (req.query.signal) activeSignal = req.query.signal;
-    res.json({ status: 'ok', signal: activeSignal });
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok', uptime: process.uptime() }));
+
+app.get('/get_signal', authMiddleware, (req, res) => {
+    const { chat_id, slot } = req.query;
+    if (!chat_id) return res.status(400).json({ error: 'Missing chat_id' });
+    const session = getSession(chat_id, slot || 1);
+    res.json({ status: 'ok', signal: session.activeSignal });
 });
-app.get('/register_vnc', (req, res) => {
-    const { vncUrl } = req.query;
-    if (vncUrl) {
-        sessionState.vncUrl = vncUrl;
-        logger.info(`✅ Registered active runner VNC URL: ${vncUrl}`);
+
+app.get('/set_signal', authMiddleware, (req, res) => {
+    const { chat_id, slot, signal } = req.query;
+    if (!chat_id || !signal) return res.status(400).json({ error: 'Missing parameters' });
+    const session = getSession(chat_id, slot || 1);
+    session.activeSignal = signal;
+    res.json({ status: 'ok', signal: session.activeSignal });
+});
+
+app.get('/register_vnc', authMiddleware, (req, res) => {
+    const { vncUrl, chat_id, slot } = req.query;
+    if (vncUrl && chat_id) {
+        const session = getSession(chat_id, slot || 1);
+        session.vncUrl = vncUrl;
+        logger.info(`✅ Registered active runner VNC URL for chat ${chat_id} [Slot ${slot || 1}]: ${vncUrl}`);
     }
-    res.json({ status: 'ok', vncUrl: sessionState.vncUrl });
+    res.json({ status: 'ok' });
 });
+
 app.listen(process.env.PORT || 10000, () => {
     logger.info(`Web server listening on port ${process.env.PORT || 10000} for keep-alive pings.`);
 });

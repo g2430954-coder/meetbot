@@ -187,7 +187,8 @@ async function joinGoogleMeet(page, customDisplayName) {
     logger.info("Searching for 'Ask to join' / 'Join now' button...");
     let joined = false;
 
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 10; attempt++) {
+        // Try multiple detection methods in parallel
         const buttonHandles = await page.$x(
             '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "ask to join") or ' +
             'contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "join now") or ' +
@@ -199,31 +200,57 @@ async function joinGoogleMeet(page, customDisplayName) {
 
         if (buttonHandles.length > 0) {
             for (const btn of buttonHandles) {
-                const isVisible = await page.evaluate(el => {
+                const isVisibleAndEnabled = await page.evaluate(el => {
                     const rect = el.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+                    const style = window.getComputedStyle(el);
+                    return rect.width > 0 && rect.height > 0 &&
+                           style.visibility !== 'hidden' &&
+                           style.display !== 'none' &&
+                           !el.disabled;
                 }, btn);
 
-                if (isVisible) {
+                if (isVisibleAndEnabled) {
                     const btnText = await page.evaluate(el => el.textContent, btn);
-                    logger.info(`Clicking Google Meet join button: "${btnText.trim()}"`);
-                    await btn.click();
+                    logger.info(`Attempting to click Google Meet join button: "${btnText.trim()}"`);
+
+                    // Use a more robust click method (JavaScript click as backup)
+                    await btn.click().catch(async () => {
+                        await page.evaluate(el => el.click(), btn);
+                    });
+
                     joined = true;
                     break;
                 }
             }
         }
 
-        if (joined) break;
+        if (joined) {
+            // Verify if we actually moved past the join screen
+            await new Promise(r => setTimeout(r, 2000));
+            const stillOnJoinScreen = await page.evaluate(() => {
+                return !!document.querySelector('input[type="text"][aria-label*="name" i]') ||
+                       document.body.innerText.includes("Ready to join?");
+            });
+            if (!stillOnJoinScreen) {
+                logger.info("Successfully joined meeting / request sent.");
+                break;
+            } else {
+                logger.info("Still on join screen, retrying click...");
+                joined = false;
+            }
+        }
 
-        // Backup check for Google Meet primary JSName button
+        // Backup check for Google Meet primary JSName button (Qx7uJf = Join Now, CQA6B = Ask to Join)
         try {
             const jsNameBtn = await page.$('button[jsname="Qx7uJf"], button[jsname="CQA6B"]');
             if (jsNameBtn) {
-                logger.info("Clicking Google Meet primary action button via JSName...");
-                await jsNameBtn.click();
-                joined = true;
-                break;
+                const isDisabled = await page.evaluate(el => el.disabled, jsNameBtn);
+                if (!isDisabled) {
+                    logger.info("Clicking Google Meet primary action button via JSName...");
+                    await jsNameBtn.click().catch(() => page.evaluate(el => el.click(), jsNameBtn));
+                    joined = true;
+                    await new Promise(r => setTimeout(r, 1000));
+                }
             }
         } catch (e) {}
 
@@ -527,9 +554,26 @@ async function takeScreenshot() {
 }
 
 async function closeBrowser() {
-    if (browser) await browser.close();
-    if (tunnelInstance) tunnelInstance.kill();
-    exec('pkill Xvfb');
+    try {
+        if (browser) {
+            logger.info("Closing Browser session...");
+            await browser.close().catch(() => {});
+        }
+        if (tunnelInstance) {
+            logger.info("Closing Serveo tunnel...");
+            tunnelInstance.kill('SIGTERM');
+        }
+        // Cleanup virtual display bridge
+        exec('pkill -f "ssh -o StrictHostKeyChecking=no -R 80:localhost:6080"');
+        exec('pkill -f "google-chrome"');
+        exec('pkill -f "Xvfb"');
+    } catch (e) {
+        logger.error(`Browser Cleanup Error: ${e.message}`);
+    } finally {
+        browser = null;
+        page = null;
+        tunnelInstance = null;
+    }
 }
 
 /**

@@ -18,9 +18,11 @@ if (!process.env.TELEGRAM_BOT_TOKEN) {
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 const meetingUrl = process.env.MEETING_URL;
 const groupId = process.env.ALLOWED_GROUP_ID;
+const slot = process.env.SLOT || 1;
 
 const playerMessageId = process.env.PLAYER_MESSAGE_ID;
 const chatId = process.env.CHAT_ID || groupId;
+const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
 
 let isRecording = false;
 let recordingStartTime = null;
@@ -111,7 +113,7 @@ const masterUIInterval = setInterval(async () => {
         partCount: processedSegments.size,
         latestTranscript: isRecording ? latestTranscript : null,
         participantName: activeParticipantName,
-        wordCount: totalWordCount, // New Field
+        wordCount: totalWordCount,
         logs: systemLogs,
         timers: {
             uptime: getSessionUptime(),
@@ -119,7 +121,8 @@ const masterUIInterval = setInterval(async () => {
             countdown: getCountdownString(),
             expiry: getWorkflowExpiry()
         },
-        schedule: scheduledStart ? { start: scheduledStart, end: scheduledEnd } : null
+        schedule: scheduledStart ? { start: scheduledStart, end: scheduledEnd } : null,
+        slot: slot
     });
 
     try {
@@ -142,10 +145,15 @@ async function getGhostSignal() {
     } catch (e) { return null; }
 }
 
+const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
+
 async function getBotHostSignal() {
     try {
         const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
-        const res = await axios.get(`${botHost}/get_signal`, { timeout: 2500 });
+        const res = await axios.get(`${botHost}/get_signal`, {
+            params: { chat_id: chatId, slot: slot, key: GHOST_API_KEY },
+            timeout: 2500
+        });
         return res.data ? res.data.signal : null;
     } catch (e) { return null; }
 }
@@ -279,6 +287,19 @@ async function run() {
         const tunnel = await browserManager.launchMeeting(meetingUrl, process.env.DISPLAY_NAME);
         vncUrlGlobal = tunnel.url;
         activeParticipantName = tunnel.participantName;
+
+        // Auto-Register VNC URL with Bot Terminal
+        try {
+            const botHost = process.env.BOT_SERVER_URL || 'https://ghost-meet.onrender.com';
+            await axios.get(`${botHost}/register_vnc`, {
+                params: { vncUrl: vncUrlGlobal, chat_id: chatId, slot: slot, key: GHOST_API_KEY },
+                timeout: 5000
+            });
+            logger.info("Successfully registered VNC URL with bot.");
+        } catch (e) {
+            logger.warn(`Failed to register VNC URL: ${e.message}`);
+        }
+
         targetProgress = 100;
         visualProgress = 100;
         progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
@@ -300,5 +321,26 @@ setInterval(() => {
 
 process.on('uncaughtException', async (err) => {
     try { await bot.telegram.sendMessage(chatId, `🚨 *System Failure:* ${err.message}`, { parse_mode: 'Markdown' }); } catch(e){}
+    await cleanup();
     process.exit(1);
+});
+
+async function cleanup() {
+    console.log("🏁 Triggering Engine Cleanup...");
+    clearInterval(masterUIInterval);
+    clearInterval(backgroundTaskInterval);
+    await recorder.stopRecording().catch(() => {});
+    await browserManager.closeBrowser().catch(() => {});
+}
+
+process.on('SIGINT', async () => {
+    console.log("Caught interrupt signal (SIGINT)");
+    await cleanup();
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log("Caught termination signal (SIGTERM)");
+    await cleanup();
+    process.exit(0);
 });

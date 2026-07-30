@@ -27,13 +27,14 @@ function generatePlayerUI(params) {
         participantName,
         logs = [],
         timers = {}, // uptime, capture, countdown, expiry
-        schedule
+        schedule,
+        slot = 1
     } = params;
 
     const icon = STATUS_ICONS[status] || '🛸';
 
     // 1. HEADER SECTION
-    let uiText = `\`[ GHOST-MEET v2.5 | KERNEL ACTIVE ]\`\n`;
+    let uiText = `\`[ GHOST-MEET v2.5 | SLOT #${slot} ]\`\n`;
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
 
     // 2. STATUS & TELEMETRY BLOCK
@@ -119,17 +120,17 @@ function generatePlayerUI(params) {
 
     if (status === 'READY' || status === 'SCHEDULED') {
         buttons.push([
-            Markup.button.callback('⏺ START CAPTURE', 'cmd_record'),
-            Markup.button.callback('🛑 END SESSION', 'cmd_stop')
+            Markup.button.callback('⏺ START CAPTURE', `cmd_record_${slot}`),
+            Markup.button.callback('🛑 END SESSION', `cmd_stop_${slot}`)
         ]);
     } else if (status === 'RECORDING') {
-        buttons.push([Markup.button.callback('🛑 TERMINATE & SAVE', 'cmd_stop')]);
+        buttons.push([Markup.button.callback('🛑 TERMINATE & SAVE', `cmd_stop_${slot}`)]);
     } else if (status === 'COMPLETED' || status === 'ERROR') {
-        buttons.push([Markup.button.callback('🔄 NEW SESSION', 'cmd_new_session')]);
+        buttons.push([Markup.button.callback('🔄 NEW SESSION', `cmd_new_session_${slot}`)]);
     }
 
     if (status !== 'RECORDING' && status !== 'FINALIZING' && status !== 'COMPLETED') {
-        buttons.push([Markup.button.callback('📟 DIAGNOSTICS', 'engine_status')]);
+        buttons.push([Markup.button.callback('📟 DIAGNOSTICS', `engine_status_${slot}`)]);
     }
 
     return {

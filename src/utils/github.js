@@ -4,7 +4,7 @@ const logger = require('./logger');
 /**
  * Automatically cancels and deletes active/queued workflow runs on GitHub
  */
-async function cancelAndDeleteRunningWorkflows() {
+async function cancelAndDeleteRunningWorkflows(chatId = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -26,21 +26,22 @@ async function cancelAndDeleteRunningWorkflows() {
             for (const run of res.data.workflow_runs) {
                 const createdAt = new Date(run.created_at).getTime();
                 const isRunning = run.status === 'in_progress' || run.status === 'queued' || run.status === 'waiting';
-                const isOld = (now - createdAt > 10000); // Only target runs older than 10 seconds
+
+                // Safety Delay: Don't cancel workflows that started in the last 30 seconds
+                // to avoid race conditions with newly triggered flows.
+                const isOld = (now - createdAt > 30000);
 
                 if (isRunning && isOld) {
-                    logger.info(`Cancelling OLD workflow run #${run.id}...`);
+                    logger.info(`Cancelling workflow run #${run.id} (${run.name})...`);
                     await axios.post(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}/cancel`, {}, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
                     }).catch(() => {});
-
-                    // Give API a moment before delete
-                    await new Promise(r => setTimeout(r, 1000));
+                    await new Promise(r => setTimeout(r, 500));
                 }
 
-                // Delete completed or cancelled workflow run logs
+                // Delete logs of non-active runs
                 if ((run.status === 'completed' || run.status === 'cancelled') && isOld) {
-                    logger.info(`Deleting workflow run log #${run.id}...`);
+                    logger.info(`Cleaning up workflow logs #${run.id}...`);
                     await axios.delete(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}`, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
                     }).catch(() => {});
@@ -48,7 +49,7 @@ async function cancelAndDeleteRunningWorkflows() {
             }
         }
     } catch (e) {
-        logger.error("Error cancelling/deleting workflows:", e.message);
+        logger.error("Error managing workflows:", e.message);
     }
 }
 
@@ -109,7 +110,7 @@ async function setGhostSignal(signalValue) {
 /**
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
-async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null) {
+async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null, slot = 1) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -119,14 +120,14 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
     }
 
     // Auto-cancel and delete any previous or stuck workflows before launching
-    logger.info("Cleaning up previous workflow runs on GitHub...");
-    await cancelAndDeleteRunningWorkflows();
+    logger.info(`Cleaning up previous workflow runs on GitHub for Slot ${slot}...`);
+    await cancelAndDeleteRunningWorkflows(chatId);
     await setGhostSignal('READY');
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
 
     try {
-        logger.info(`Triggering GitHub Runner for: ${meetingUrl} (Display Name: ${displayName || 'Random Human'})`);
+        logger.info(`Triggering GitHub Runner for: ${meetingUrl} (Slot: ${slot})`);
 
         await axios.post(url, {
             event_type: 'start_ghost_runner',
@@ -136,7 +137,8 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
                 chat_id: chatId,
                 display_name: displayName,
                 scheduled_start: scheduledStart,
-                scheduled_end: scheduledEnd
+                scheduled_end: scheduledEnd,
+                slot: slot
             }
         }, {
             headers: {
