@@ -106,6 +106,7 @@ jobs:
           PLAYER_MESSAGE_ID: ${{ github.event.client_payload.player_message_id }}
           CHAT_ID: ${{ github.event.client_payload.chat_id }}
           SLOT: ${{ github.event.client_payload.slot }}
+          RUN_START_TIME: ${{ github.event.client_payload.run_start_time }}
           SCHEDULED_START: ${{ github.event.client_payload.scheduled_start }}
           SCHEDULED_END: ${{ github.event.client_payload.scheduled_end }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}

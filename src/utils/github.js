@@ -4,7 +4,7 @@ const logger = require('./logger');
 /**
  * Automatically cancels and deletes active/queued workflow runs on GitHub
  */
-async function cancelAndDeleteRunningWorkflows(chatId = null) {
+async function cancelAndDeleteRunningWorkflows(chatId = null, slot = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -110,7 +110,7 @@ async function setGhostSignal(signalValue) {
 /**
  * Triggers the GitHub Actions workflow via Repository Dispatch
  */
-async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null, slot = 1) {
+async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null, slot = 1, runStartTime = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
     const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
     const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
@@ -121,7 +121,7 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
 
     // Auto-cancel and delete any previous or stuck workflows before launching
     logger.info(`Cleaning up previous workflow runs on GitHub for Slot ${slot}...`);
-    await cancelAndDeleteRunningWorkflows(chatId);
+    await cancelAndDeleteRunningWorkflows(chatId, slot);
     await setGhostSignal('READY');
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/dispatches`;
@@ -138,7 +138,8 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
                 display_name: displayName,
                 scheduled_start: scheduledStart,
                 scheduled_end: scheduledEnd,
-                slot: slot
+                slot: slot,
+                run_start_time: runStartTime || Date.now()
             }
         }, {
             headers: {

@@ -9,6 +9,7 @@ let page = null;
 let tunnelInstance = null;
 let tunnelUrl = null;
 let activeParticipantName = null;
+let antiKickInterval = null;
 
 // Pool of authentic, natural-sounding human names to prevent bot flagging or host kicks
 const REALISTIC_HUMAN_NAMES = [
@@ -270,9 +271,13 @@ async function joinGoogleMeet(page, customDisplayName) {
 }
 
 function startAntiKickWatcher(page) {
-    setInterval(async () => {
+    if (antiKickInterval) clearInterval(antiKickInterval);
+    antiKickInterval = setInterval(async () => {
         try {
-            if (!page || page.isClosed()) return;
+            if (!page || page.isClosed()) {
+                if (antiKickInterval) clearInterval(antiKickInterval);
+                return;
+            }
 
             const isDenied = await page.evaluate(() => {
                 const text = document.body ? document.body.innerText || '' : '';
@@ -555,6 +560,10 @@ async function takeScreenshot() {
 
 async function closeBrowser() {
     try {
+        if (antiKickInterval) {
+            clearInterval(antiKickInterval);
+            antiKickInterval = null;
+        }
         if (browser) {
             logger.info("Closing Browser session...");
             await browser.close().catch(() => {});

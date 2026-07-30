@@ -56,8 +56,8 @@ async function throttledEdit(ctx, text, markup, slot = 1) {
     const session = getSession(chatId, slot);
     const now = Date.now();
 
-    if (now - session.lastActionTime < 3500) {
-        await new Promise(r => setTimeout(r, 3500 - (now - session.lastActionTime)));
+    if (now - session.lastActionTime < 2100) {
+        await new Promise(r => setTimeout(r, 2100 - (now - session.lastActionTime)));
     }
     session.lastActionTime = Date.now();
 
@@ -244,8 +244,8 @@ bot.help(async (ctx) => {
 /**
  * Resets the session state for a fresh start
  */
-function resetSession(chatId) {
-    const session = getSession(chatId);
+function resetSession(chatId, slot = 1) {
+    const session = getSession(chatId, slot);
     session.activeSignal = 'NONE';
     session.isJoined = false;
     session.isRecording = false;
@@ -279,25 +279,52 @@ async function handleJoin(ctx, slot = 1) {
     session.title = title;
     session.isJoined = true;
     session.schedule = { start, end };
+    session.startTime = Date.now();
+    session.runnerIsLive = false;
 
     const player = ui.generatePlayerUI({
         status: start ? 'SCHEDULED' : 'INITIALIZING',
         progress: 1,
         meetingUrl: url,
         schedule: session.schedule,
-        slot: slot
+        slot: slot,
+        timers: { uptime: '00:00' }
     });
     const msg = await ctx.replyWithMarkdown(player.text, player.markup);
     session.playerMessageId = msg.message_id;
 
+    // Start Bot-Side Startup Timer (updates until runner is live)
+    const startupInterval = setInterval(async () => {
+        if (session.runnerIsLive || !session.isJoined || !!start) {
+            clearInterval(startupInterval);
+            return;
+        }
+
+        const uptimeSec = Math.floor((Date.now() - session.startTime) / 1000);
+        const uptimeStr = `${Math.floor(uptimeSec/60).toString().padStart(2,'0')}:${(uptimeSec%60).toString().padStart(2,'0')}`;
+
+        const startupUI = ui.generatePlayerUI({
+            status: 'INITIALIZING',
+            progress: Math.min(12, 1 + Math.floor(uptimeSec / 6)),
+            meetingUrl: url,
+            schedule: session.schedule,
+            slot: slot,
+            timers: { uptime: uptimeStr },
+            logs: ["Cloud: Provisioning runner...", "System: Initializing environment..."]
+        });
+
+        await throttledEdit(ctx, startupUI.text, startupUI.markup, slot);
+    }, 2800);
+
     try {
-        await github.triggerRunner(url, session.playerMessageId, chatId, displayName, start, end, slot);
+        await github.triggerRunner(url, session.playerMessageId, chatId, displayName, start, end, slot, session.startTime);
         const dispatchedUI = ui.generatePlayerUI({
             status: start ? 'SCHEDULED' : 'DEPLOYING',
             progress: 3,
             meetingUrl: url,
             schedule: session.schedule,
-            slot: slot
+            slot: slot,
+            timers: { uptime: '00:01' }
         });
         await throttledEdit(ctx, dispatchedUI.text, dispatchedUI.markup, slot);
         startWorkflowMonitor(ctx, slot);
@@ -547,6 +574,7 @@ app.get('/register_vnc', authMiddleware, (req, res) => {
     if (vncUrl && chat_id) {
         const session = getSession(chat_id, slot || 1);
         session.vncUrl = vncUrl;
+        session.runnerIsLive = true; // Signals bot to stop local timer
         logger.info(`✅ Registered active runner VNC URL for chat ${chat_id} [Slot ${slot || 1}]: ${vncUrl}`);
     }
     res.json({ status: 'ok' });

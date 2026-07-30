@@ -26,9 +26,20 @@
         startAutoJoinEngine();
     }
 
+    let hasJoined = false;
+
     function startAutoJoinEngine() {
         const interval = setInterval(() => {
             if (!location.pathname || location.pathname === '/') return;
+
+            // Stop polling if we are already inside an active call
+            if (hasJoined) {
+                const callControls = document.querySelector('[aria-label*="leave call" i], [aria-label*="end call" i], button[jsname="CQA6B"]');
+                if (callControls) {
+                    clearInterval(interval);
+                    return;
+                }
+            }
 
             // 1. Auto dismiss popups ("Got it", "Dismiss")
             if (config.autoDismissPopups) {
@@ -49,10 +60,11 @@
 
                 if (config.autoJoin) {
                     joinButtons[0].click();
+                    hasJoined = true;
                     console.log("✅ Auto Join extension clicked Join button!");
                 }
             }
-        }, 1000);
+        }, 1500);
     }
 
     function findJoinButtons() {

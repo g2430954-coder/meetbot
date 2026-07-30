@@ -3,6 +3,7 @@ const express = require('express');
 const axios = require('axios');
 const fs = require('fs-extra');
 const path = require('path');
+const httpProxy = require('http-proxy');
 const { spawnSync } = require('child_process');
 const browserManager = require('../src/core/browser');
 const recorder = require('../src/core/recorder');
@@ -54,7 +55,7 @@ const TZ_OFFSET_HOURS = 5;
 const TZ_OFFSET_MINS = 30; // IST
 
 let lastUIUpdate = 0;
-const UI_UPDATE_INTERVAL = 2000; // Smoother UI updates
+const UI_UPDATE_INTERVAL = 3000; // Rate limit friendly updates (3s)
 
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
@@ -130,7 +131,7 @@ const masterUIInterval = setInterval(async () => {
             parse_mode: 'Markdown', ...currentUI.markup
         });
     } catch (e) {}
-}, 500);
+}, 2000);
 
 async function getGhostSignal() {
     try {
@@ -213,8 +214,14 @@ async function generateMasterTranscript() {
         fs.writeFileSync(fileListPath, videoFiles.map(f => `file '${path.join(chunksDir, f)}'`).join('\n'));
         spawnSync('ffmpeg', ['-f', 'concat', '-safe', '0', '-i', fileListPath, '-vn', '-acodec', 'pcm_s16le', '-ar', '16000', '-ac', '1', '-y', masterWav]);
         if (fs.existsSync(masterWav)) {
-            const { execSync } = require('child_process');
-            execSync(`python3 src/core/transcribe.py "${masterWav}" "${masterTranscriptPath}" --master`);
+            const { execFile } = require('child_process');
+            const transcribeScript = path.join(__dirname, '../src/core/transcribe.py');
+            await new Promise((resolve) => {
+                execFile('python3', [transcribeScript, masterWav, masterTranscriptPath, '--master'], (err) => {
+                    if (err) logger.error("Master transcript error:", err.message);
+                    resolve();
+                });
+            });
             return masterTranscriptPath;
         }
     } catch (e) { console.error("Master Transcript Error:", e.message); }
@@ -233,7 +240,7 @@ const backgroundTaskInterval = setInterval(async () => {
         const recordSignal = await checkRecordSignal() || (startTime && now >= startTime);
         if (recordSignal) await triggerStartRecording();
     }
-}, 1000); // 1s Precise Polling
+}, 3000); // 3s Smooth Polling
 
 async function triggerStartRecording() {
     if (isRecording) return;
@@ -312,12 +319,38 @@ async function run() {
         visualProgress = 100;
         progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
         systemLogs.push(`Identity: ${activeParticipantName}`);
+
         const expressApp = express();
+        const proxy = httpProxy.createProxyServer({
+            target: 'http://localhost:6081',
+            ws: true
+        });
+
+        // 1. Health Check & Bot Signals (Handled by Express)
         expressApp.get('/bridge_health', (req, res) => res.json({ status: 'active' }));
         expressApp.get('/record', async (req, res) => { await triggerStartRecording(); res.json({ success: true }); });
         expressApp.get('/stop', async (req, res) => { res.json({ success: true }); await finalizeAndUpload(vncUrlGlobal); });
-        expressApp.listen(6080);
-    } catch (error) { process.exit(1); }
+
+        // 2. Everything else (Forward to noVNC on 6081)
+        expressApp.all('*', (req, res) => {
+            proxy.web(req, res, (err) => {
+                logger.error("VNC Proxy Error:", err.message);
+                res.status(502).send("VNC Bridge Offline");
+            });
+        });
+
+        const server = expressApp.listen(6080);
+
+        // 3. Critical: Handle Websocket Proxying for VNC Stream
+        server.on('upgrade', (req, socket, head) => {
+            proxy.ws(req, socket, head);
+        });
+
+        logger.info("VNC & Signal Bridge operational on port 6080.");
+    } catch (error) {
+        logger.error("Runner Launch Error:", error);
+        process.exit(1);
+    }
 }
 
 run();

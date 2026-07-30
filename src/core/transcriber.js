@@ -1,4 +1,4 @@
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const path = require('path');
 const logger = require('../utils/logger');
 const fs = require('fs-extra');
@@ -19,8 +19,8 @@ async function transcribe(audioPath) {
     logger.info(`Starting transcription for ${audioPath}...`);
 
     return new Promise((resolve, reject) => {
-        // Execute Python transcription script
-        exec(`python3 "${pythonScriptPath}" "${audioPath}" "${outputPath}"`, (error, stdout, stderr) => {
+        // Safe execution using execFile with array parameters
+        execFile('python3', [pythonScriptPath, audioPath, outputPath], (error, stdout, stderr) => {
             if (error) {
                 logger.error(`Transcription Script Error: ${stderr}`);
                 return resolve(null); // Resolve with null so bot doesn't crash

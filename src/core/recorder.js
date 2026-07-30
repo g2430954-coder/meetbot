@@ -62,7 +62,7 @@ async function startRecording() {
         '-reset_timestamps', '1',
         '-movflags', '+faststart',
         '-y', path.join(chunksDir, 'GHOST_part_%03d.mp4')
-    ]);
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     ffmpegProcess.on('error', (err) => logger.error(`FFMPEG Startup Error: ${err.message}`));
 }
@@ -72,9 +72,13 @@ async function startRecording() {
  */
 async function extractAudio(videoPath, audioPath) {
     try {
-        // speechnorm: automatically balances low and high volume speech
-        // volume=2.5: baseline boost for AI clarity
-        execSync(`ffmpeg -i "${videoPath}" -vn -af "speechnorm=e=4:r=0.0001,volume=2.5" -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}" 2>/dev/null`);
+        try {
+            // speechnorm: automatically balances low and high volume speech
+            execSync(`ffmpeg -i "${videoPath}" -vn -af "speechnorm=e=4:r=0.0001,volume=2.5" -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}" 2>/dev/null`);
+        } catch (filterErr) {
+            // Fallback for older FFMPEG builds without speechnorm filter
+            execSync(`ffmpeg -i "${videoPath}" -vn -af "volume=2.5" -acodec pcm_s16le -ar 16000 -ac 1 -y "${audioPath}" 2>/dev/null`);
+        }
         return true;
     } catch (e) {
         logger.error(`Audio Extraction Error: ${e.message}`);
