@@ -15,6 +15,9 @@ const ALLOWED_GROUPS = (process.env.ALLOWED_GROUPS || process.env.ALLOWED_GROUP_
 const sessions = new Map();
 const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
 
+// Deduplication Cache
+const processedUpdates = new Map();
+
 /**
  * Helper to get or initialize session state for a specific chat and slot
  */
