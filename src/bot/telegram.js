@@ -39,6 +39,13 @@ function getSession(chatId, slot = 1) {
 }
 
 /**
+ * Global Error Handler to prevent crashes
+ */
+bot.catch((err, ctx) => {
+    logger.error(`Telegraf Error [Update: ${ctx.updateType}]:`, err.message);
+});
+
+/**
  * Throttled Edit Guard to prevent 429 errors (Per-Session Slot)
  */
 async function throttledEdit(ctx, text, markup, slot = 1) {
@@ -63,9 +70,13 @@ async function throttledEdit(ctx, text, markup, slot = 1) {
                 logger.warn(`Telegram 429 Rate Limit [Slot ${slot}]. Backing off ${wait}s...`);
                 await new Promise(r => setTimeout(r, wait * 1000));
                 session.lastActionTime = Date.now();
-                return ctx.telegram.editMessageText(chatId, Number(session.playerMessageId), undefined, text, {
-                    parse_mode: 'Markdown', ...markup
-                }).catch(() => {});
+                try {
+                    return await ctx.telegram.editMessageText(chatId, Number(session.playerMessageId), undefined, text, {
+                        parse_mode: 'Markdown', ...markup
+                    });
+                } catch (retryErr) {
+                    logger.error(`Retry Edit Error [Slot ${slot}]:`, retryErr.message);
+                }
             }
             logger.error(`Throttled Edit Error [Slot ${slot}]:`, e.message);
         }
@@ -167,7 +178,7 @@ bot.use(async (ctx, next) => {
 
     if (!isAllowed) {
         if (ctx.message && ctx.message.text) {
-            return ctx.replyWithMarkdown(`🚨 *GHOST meet | ACCESS DENIED*\nChat ID \`${chatId}\` is not in the authorized list.`);
+            await ctx.replyWithMarkdown(`🚨 *GHOST meet | ACCESS DENIED*\nChat ID \`${chatId}\` is not in the authorized list.`).catch(() => {});
         }
         return;
     }
@@ -185,7 +196,7 @@ bot.use(async (ctx, next) => {
 /**
  * /start - Boot the system interface
  */
-bot.start((ctx) => {
+bot.start(async (ctx) => {
     const welcomeUI =
         "🛸 *GHOST meet | STEALTH TERMINAL v2.5*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -198,16 +209,16 @@ bot.start((ctx) => {
         "• _24h Format_: `/join https://meet.com/abc Meeting 14:00 15:30` \n\n" +
         "Use /help for detailed operational manual.";
 
-    ctx.replyWithMarkdown(welcomeUI, Markup.inlineKeyboard([
+    await ctx.replyWithMarkdown(welcomeUI, Markup.inlineKeyboard([
         [Markup.button.callback('⚙️ Check Diagnostics', 'engine_status')],
         [Markup.button.callback('📖 Operational Manual', 'help_guide')]
-    ]));
+    ])).catch(() => {});
 });
 
 /**
  * /help - Detailed user manual
  */
-bot.help((ctx) => {
+bot.help(async (ctx) => {
     const helpUI =
         "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -224,7 +235,7 @@ bot.help((ctx) => {
         "• `START CAPTURE`: Begins 1080p recording.\n" +
         "• `TERMINATE & SAVE`: Stops, splits video, and sends transcript.";
 
-    ctx.replyWithMarkdown(helpUI);
+    await ctx.replyWithMarkdown(helpUI).catch(() => {});
 });
 
 /**
@@ -253,11 +264,11 @@ async function handleJoin(ctx, slot = 1) {
     const session = getSession(chatId, slot);
     const { url, title, displayName, start, end } = parseJoinParams(ctx.message.text);
 
-    if (!url) return ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.");
-    if (!title) return ctx.replyWithMarkdown(`❌ *Error:* Meeting Title is MANDATORY.\nSyntax: \`/join${slot === 1 ? '' : slot} <url> <title>\``);
+    if (!url) return await ctx.replyWithMarkdown("❌ *Error:* Invalid or missing URL.").catch(() => {});
+    if (!title) return await ctx.replyWithMarkdown(`❌ *Error:* Meeting Title is MANDATORY.\nSyntax: \`/join${slot === 1 ? '' : slot} <url> <title>\``).catch(() => {});
 
     if (session.isJoined) {
-        return ctx.replyWithMarkdown(`⚠️ *Active Session in Slot ${slot} Exists*. Use \`/stop${slot === 1 ? '' : slot}\` first.`);
+        return await ctx.replyWithMarkdown(`⚠️ *Active Session in Slot ${slot} Exists*. Use \`/stop${slot === 1 ? '' : slot}\` first.`).catch(() => {});
     }
 
     resetSession(chatId, slot);
@@ -411,7 +422,7 @@ bot.action(/cmd_new_session_(\d+)/, async (ctx) => {
     return ctx.replyWithMarkdown(`🔄 *Terminal Slot ${slot} Reset Complete.*\nActive workflows cleared.`);
 });
 
-bot.command(['status', 'status1', 'status2', 'status3', 'status4', 'status5', 'status6', 'status7', 'status8', 'status9'], (ctx) => {
+bot.command(['status', 'status1', 'status2', 'status3', 'status4', 'status5', 'status6', 'status7', 'status8', 'status9'], async (ctx) => {
     const match = ctx.message.text.match(/\/status(\d)?/);
     const slot = match && match[1] ? parseInt(match[1]) : 1;
     const chatId = ctx.chat.id.toString();
@@ -423,17 +434,18 @@ bot.command(['status', 'status1', 'status2', 'status3', 'status4', 'status5', 's
         `📝 Title: \`${session.title || 'N/A'}\`\n` +
         `⏺ Recording: ${session.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE"}\n` +
         "⚡️ Kernel: *Operational*";
-    ctx.replyWithMarkdown(diagnosticUI);
+    await ctx.replyWithMarkdown(diagnosticUI).catch(() => {});
 });
 
-bot.command('flows', (ctx) => {
+bot.command('flows', async (ctx) => {
     let activeCount = 0;
     const activeFlows = [];
 
-    for (const [id, session] of sessions.entries()) {
+    for (const [key, session] of sessions.entries()) {
         if (session.isJoined) {
             activeCount++;
-            activeFlows.push(`🔹 *${session.title || 'Untitled'}* (Chat ID: \`${id}\`)`);
+            const chatId = key.split('_')[0];
+            activeFlows.push(`🔹 *${session.title || 'Untitled'}* (Chat ID: \`${chatId}\` | Slot: ${session.slot})`);
         }
     }
 
@@ -445,7 +457,7 @@ bot.command('flows', (ctx) => {
         message += "⚪️ No active sessions found.";
     }
 
-    ctx.replyWithMarkdown(message);
+    await ctx.replyWithMarkdown(message).catch(() => {});
 });
 
 function startWorkflowMonitor(ctx, slot = 1) {
@@ -471,17 +483,17 @@ function startWorkflowMonitor(ctx, slot = 1) {
 }
 
 // Inline Actions
-bot.action(/engine_status_(\d+)/, (ctx) => {
-    try { ctx.answerCbQuery(); } catch (e) {}
+bot.action(/engine_status_(\d+)/, async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
     const slot = parseInt(ctx.match[1]);
     const chatId = ctx.chat.id.toString();
     const session = getSession(chatId, slot);
     const recordingStatus = session.isRecording ? "🔴 ACTIVE" : "⚪️ IDLE";
-    ctx.replyWithMarkdown(`📟 *ENGINE DIAGNOSTICS | SLOT #${slot}*\nStatus: ${recordingStatus}`);
+    await ctx.replyWithMarkdown(`📟 *ENGINE DIAGNOSTICS | SLOT #${slot}*\nStatus: ${recordingStatus}`).catch(() => {});
 });
 
-bot.action('help_guide', (ctx) => {
-    try { ctx.answerCbQuery(); } catch (e) {}
+bot.action('help_guide', async (ctx) => {
+    try { await ctx.answerCbQuery(); } catch (e) {}
     const helpUI =
         "📖 *GHOST meet | OPERATIONAL MANUAL*\n" +
         "━━━━━━━━━━━━━━━━━━━━━━\n" +
@@ -493,7 +505,7 @@ bot.action('help_guide', (ctx) => {
         "3️⃣ *Monitoring*\n" +
         "Use `/flows` to see active engine count.";
 
-    ctx.replyWithMarkdown(helpUI);
+    await ctx.replyWithMarkdown(helpUI).catch(() => {});
 });
 
 const app = express();
