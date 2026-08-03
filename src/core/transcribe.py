@@ -5,14 +5,18 @@ import contextlib
 import time
 import requests
 
-# Try to import Whisper for High-Quality Local STT
-try:
-    import whisper
-    import torch
-    HAS_WHISPER = True
-    WHISPER_MODEL = whisper.load_model("base")
-except Exception as e:
-    HAS_WHISPER = False
+_whisper_model = None
+
+def get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        try:
+            import whisper
+            _whisper_model = whisper.load_model("base")
+        except Exception as e:
+            print(f"Whisper Model Load Error: {e}")
+            _whisper_model = False
+    return _whisper_model if _whisper_model else None
 
 # Try to import SpeechRecognition for Fallback
 try:
@@ -91,11 +95,12 @@ def transcribe_with_cloud_api(audio_file):
 
 def transcribe_with_whisper(audio_file):
     """Transcription using OpenAI Whisper (Local AI Engine)"""
-    if not HAS_WHISPER:
+    model = get_whisper_model()
+    if not model:
         return None
     try:
         # Automatic language detection (Hindi + English + Hinglish dynamic recognition)
-        result = WHISPER_MODEL.transcribe(audio_file, task="transcribe")
+        result = model.transcribe(audio_file, task="transcribe")
         text = result.get("text", "").strip()
         return convert_to_hinglish(text)
     except Exception as e:
@@ -103,24 +108,69 @@ def transcribe_with_whisper(audio_file):
         return None
 
 def transcribe_with_google(audio_file):
-    """Fallback transcription using Google Speech Recognition"""
+    """Fallback transcription using Google Speech Recognition with automatic chunking for long audio"""
     if not HAS_SR:
         return None
     recognizer = sr.Recognizer()
-    recognizer.energy_threshold = 30
-    recognizer.dynamic_energy_threshold = False
+    recognizer.energy_threshold = 40
+    recognizer.dynamic_energy_threshold = True
+
+    duration = get_audio_duration(audio_file)
+
+    # For short audio <= 35 seconds, transcribe directly
+    if duration <= 35:
+        try:
+            with sr.AudioFile(audio_file) as source:
+                audio_chunk = recognizer.record(source)
+                for lang in ['hi-IN', 'en-IN', 'en-US']:
+                    try:
+                        raw_text = recognizer.recognize_google(audio_chunk, language=lang)
+                        if raw_text and len(raw_text.strip()) > 1:
+                            return convert_to_hinglish(raw_text)
+                    except Exception:
+                        continue
+        except Exception as e:
+            print(f"Google SR Error: {e}")
+        return None
+
+    # For longer audio (> 35s), split into 25s chunks using ffmpeg
+    import tempfile
+    import subprocess
+    import shutil
+
+    temp_dir = tempfile.mkdtemp()
     try:
-        with sr.AudioFile(audio_file) as source:
-            audio_chunk = recognizer.record(source)
-            for lang in ['hi-IN', 'en-IN', 'en-US']:
-                try:
-                    raw_text = recognizer.recognize_google(audio_chunk, language=lang)
-                    if raw_text and len(raw_text.strip()) > 1:
-                        return convert_to_hinglish(raw_text)
-                except Exception:
-                    continue
+        chunk_pattern = os.path.join(temp_dir, "chunk_%03d.wav")
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", audio_file, "-f", "segment", "-segment_time", "25", "-c", "copy", chunk_pattern],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
+        )
+        chunks = sorted([os.path.join(temp_dir, f) for f in os.listdir(temp_dir) if f.endswith('.wav')])
+        full_text_parts = []
+        for chunk_path in chunks:
+            try:
+                with sr.AudioFile(chunk_path) as source:
+                    audio_chunk = recognizer.record(source)
+                    chunk_text = None
+                    for lang in ['hi-IN', 'en-IN', 'en-US']:
+                        try:
+                            raw = recognizer.recognize_google(audio_chunk, language=lang)
+                            if raw and len(raw.strip()) > 1:
+                                chunk_text = raw
+                                break
+                        except Exception:
+                            continue
+                    if chunk_text:
+                        full_text_parts.append(convert_to_hinglish(chunk_text))
+            except Exception:
+                continue
+        if full_text_parts:
+            return " ".join(full_text_parts)
     except Exception as e:
-        print(f"Google SR Fallback Error: {e}")
+        print(f"Google SR Chunked Error: {e}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
     return None
 
 def run_transcription(audio_file, output_file, is_master=False):

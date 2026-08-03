@@ -127,10 +127,26 @@ async function stopRecording() {
 async function preparePlayableVideo(videoPath, outputPath) {
     try {
         if (!fs.existsSync(videoPath)) return videoPath;
-        execSync(`ffmpeg -i "${videoPath}" -c copy -movflags +faststart -y "${outputPath}" 2>/dev/null`);
-        return fs.existsSync(outputPath) ? outputPath : videoPath;
+
+        // 1. Attempt fast stream-copy remux with +faststart
+        try {
+            execSync(`ffmpeg -y -err_detect ignore_err -i "${videoPath}" -c copy -movflags +faststart "${outputPath}" 2>/dev/null`);
+            if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+                return outputPath;
+            }
+        } catch (copyErr) {
+            logger.warn(`Fast copy remux failed for ${path.basename(videoPath)}, falling back to re-encode repair...`);
+        }
+
+        // 2. Fallback repair: Full re-encode to ensure 100% Telegram-compatible H.264/AAC MP4 with +faststart
+        execSync(`ffmpeg -y -err_detect ignore_err -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v main -level 4.0 -pix_fmt yuv420p -crf 24 -c:a aac -b:a 128k -ar 44100 -movflags +faststart "${outputPath}" 2>/dev/null`);
+        if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
+            return outputPath;
+        }
+
+        return videoPath;
     } catch (e) {
-        logger.error(`Video FastStart Remux Notice: ${e.message}`);
+        logger.error(`Video FastStart Remux Error: ${e.message}`);
         return videoPath;
     }
 }

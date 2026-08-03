@@ -538,6 +538,62 @@ bot.action('help_guide', async (ctx) => {
     await ctx.replyWithMarkdown(helpUI).catch(() => {});
 });
 
+/**
+ * Handle incoming Voice Notes & Audio messages for instant Voice-To-Text
+ */
+bot.on(['voice', 'audio'], async (ctx) => {
+    try {
+        const fileId = ctx.message.voice ? ctx.message.voice.file_id : ctx.message.audio.file_id;
+
+        const statusMsg = await ctx.replyWithMarkdown("🎙 *Processing Voice Note to Text...*\nConverting audio feed...").catch(() => null);
+
+        const fileLink = await ctx.telegram.getFileLink(fileId);
+        const url = fileLink.href || fileLink;
+
+        const axios = require('axios');
+        const fs = require('fs-extra');
+        const path = require('path');
+        const os = require('os');
+        const { execSync } = require('child_process');
+        const transcriber = require('../core/transcriber');
+
+        const tempDir = path.join(os.tmpdir(), `ghost_voice_${Date.now()}`);
+        await fs.ensureDir(tempDir);
+        const inputAudioPath = path.join(tempDir, 'voice_input');
+        const wavPath = path.join(tempDir, 'voice_input.wav');
+
+        const response = await axios.get(url, { responseType: 'arraybuffer' });
+        await fs.writeFile(inputAudioPath, response.data);
+
+        execSync(`ffmpeg -y -i "${inputAudioPath}" -acodec pcm_s16le -ar 16000 -ac 1 "${wavPath}" 2>/dev/null`);
+
+        const transcriptPath = await transcriber.transcribe(wavPath);
+        let transcriptText = "";
+
+        if (transcriptPath && fs.existsSync(transcriptPath)) {
+            const rawText = fs.readFileSync(transcriptPath, 'utf8');
+            transcriptText = rawText.split('\n').filter(l => l.trim() && !l.includes('━━━━')).join(' ').trim();
+        }
+
+        await fs.remove(tempDir).catch(() => {});
+
+        const replyText = transcriptText && transcriptText !== "No clear speech detected in segment."
+            ? `📝 *VOICE TO TEXT RESULT:*\n\n"${transcriptText}"`
+            : `⚠️ *Voice to Text Result:*\nNo clear speech detected in audio note.`;
+
+        if (statusMsg) {
+            await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, undefined, replyText, { parse_mode: 'Markdown' }).catch(async () => {
+                await ctx.replyWithMarkdown(replyText).catch(() => {});
+            });
+        } else {
+            await ctx.replyWithMarkdown(replyText).catch(() => {});
+        }
+    } catch (err) {
+        logger.error("Voice-to-Text Telegram Error:", err.message);
+        await ctx.replyWithMarkdown(`🚨 *Voice-to-Text Error:* ${err.message}`).catch(() => {});
+    }
+});
+
 const app = express();
 
 // Security Middleware

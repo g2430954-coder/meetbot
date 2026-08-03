@@ -167,6 +167,51 @@ async function checkStopSignal() {
     return signal === 'STOP';
 }
 
+function getVideoMetadata(filePath) {
+    try {
+        const out = spawnSync('ffprobe', [
+            '-v', 'error',
+            '-show_entries', 'format=duration:stream=width,height',
+            '-of', 'json',
+            filePath
+        ]).stdout.toString();
+        const data = JSON.parse(out);
+        const duration = parseFloat(data.format?.duration || 0);
+        const stream = (data.streams || []).find(s => s.width && s.height) || {};
+        return {
+            duration: Math.round(duration),
+            width: stream.width || 1920,
+            height: stream.height || 1080
+        };
+    } catch (e) {
+        return { duration: 0, width: 1920, height: 1080 };
+    }
+}
+
+async function sendVideoToTelegram(bot, chatId, videoPath, caption) {
+    const meta = getVideoMetadata(videoPath);
+    const videoOptions = {
+        supports_streaming: true,
+        width: meta.width,
+        height: meta.height,
+        caption: caption
+    };
+    if (meta.duration > 0) videoOptions.duration = meta.duration;
+
+    try {
+        await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(videoPath) }, videoOptions);
+    } catch (err) {
+        logger.warn(`sendVideo failed (${err.message}), falling back to sendDocument...`);
+        try {
+            await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(videoPath), filename: path.basename(videoPath) }, {
+                caption: caption
+            });
+        } catch (docErr) {
+            logger.error(`sendDocument fallback error: ${docErr.message}`);
+        }
+    }
+}
+
 async function processLatestSegments() {
     if (!fs.existsSync(chunksDir) || isProcessingSegment) return;
     const files = fs.readdirSync(chunksDir).filter(f => f.endsWith('.mp4')).sort();
@@ -194,12 +239,7 @@ async function processLatestSegments() {
                 const finalVideoPath = await recorder.preparePlayableVideo(filePath, playablePath);
                 const captionText = latestTranscript ? latestTranscript.substring(0, 500) : "Speech capture active...";
 
-                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(finalVideoPath) }, {
-                    supports_streaming: true,
-                    width: 1920,
-                    height: 1080,
-                    caption: `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${captionText}`
-                }).catch(() => {});
+                await sendVideoToTelegram(bot, chatId, finalVideoPath, `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${captionText}`);
 
                 if (fs.existsSync(playablePath)) fs.removeSync(playablePath);
 
@@ -289,12 +329,7 @@ async function finalizeAndUpload(vncUrl) {
                 const playablePath = path.join(outputDir, `stream_${file}`);
                 const finalVideoPath = await recorder.preparePlayableVideo(rawPath, playablePath);
 
-                await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(finalVideoPath) }, {
-                    supports_streaming: true,
-                    width: 1920,
-                    height: 1080,
-                    caption: `🎥 GHOST meet Recording | Final Part ${processedSegments.size + 1}`
-                }).catch(() => {});
+                await sendVideoToTelegram(bot, chatId, finalVideoPath, `🎥 GHOST meet Recording | Final Part ${processedSegments.size + 1}`);
                 processedSegments.add(file);
                 if (fs.existsSync(playablePath)) fs.removeSync(playablePath);
             }
