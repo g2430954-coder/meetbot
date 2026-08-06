@@ -31,7 +31,7 @@ function ensureAudioEnvironment() {
 }
 
 /**
- * Initiates HD FFMPEG capture with REAL-TIME SEGMENTING
+ * Initiates HD FFMPEG capture with REAL-TIME SEGMENTING & Keyframe Alignment
  */
 async function startRecording() {
     await fs.ensureDir(outputDir);
@@ -41,7 +41,7 @@ async function startRecording() {
 
     logger.info("Initializing HD Real-Time Segmenting Capture on :99...");
 
-    // Telegram-Compatible HD Segmenting: H.264 Main Profile + FastStart for Instant In-Chat Playback
+    // Telegram-Compatible HD Segmenting: H.264 Main Profile + Forced GOP Keyframes + FastStart for Instant In-Chat Playback
     ffmpegProcess = spawn('ffmpeg', [
         '-f', 'x11grab',
         '-video_size', '1920x1080',
@@ -56,6 +56,9 @@ async function startRecording() {
         '-profile:v', 'main',
         '-level', '4.0',
         '-pix_fmt', 'yuv420p',
+        '-g', '60', // Keyframe every 2 seconds (30fps * 2s) - CRITICAL for segmenting & streaming
+        '-keyint_min', '30',
+        '-force_key_frames', 'expr:gte(t,n_forced*2)',
         '-crf', '25',
         '-c:a', 'aac',
         '-b:a', '128k',
@@ -65,6 +68,8 @@ async function startRecording() {
         '-segment_time', '900', // 15 mins
         '-reset_timestamps', '1',
         '-segment_format_options', 'movflags=+faststart',
+        '-avoid_negative_ts', 'make_zero',
+        '-fflags', '+genpts',
         '-y', path.join(chunksDir, 'GHOST_part_%03d.mp4')
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
@@ -122,24 +127,24 @@ async function stopRecording() {
 }
 
 /**
- * Remuxes video segment with +faststart and proper duration headers for Telegram
+ * Remuxes/Re-encodes video segment with +faststart, clean PTS timestamps, and proper headers for Telegram playback
  */
 async function preparePlayableVideo(videoPath, outputPath) {
     try {
         if (!fs.existsSync(videoPath)) return videoPath;
 
-        // 1. Attempt fast stream-copy remux with +faststart
+        // 1. Re-encode repair: Guarantees clean keyframes, valid PTS/DTS timestamps, and faststart moov atom
         try {
-            execSync(`ffmpeg -y -err_detect ignore_err -i "${videoPath}" -c copy -movflags +faststart "${outputPath}" 2>/dev/null`);
+            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v main -level 4.0 -pix_fmt yuv420p -g 60 -crf 24 -c:a aac -b:a 128k -ar 44100 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 return outputPath;
             }
-        } catch (copyErr) {
-            logger.warn(`Fast copy remux failed for ${path.basename(videoPath)}, falling back to re-encode repair...`);
+        } catch (reencodeErr) {
+            logger.warn(`Re-encode repair failed for ${path.basename(videoPath)}, trying stream copy fallback...`);
         }
 
-        // 2. Fallback repair: Full re-encode to ensure 100% Telegram-compatible H.264/AAC MP4 with +faststart
-        execSync(`ffmpeg -y -err_detect ignore_err -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v main -level 4.0 -pix_fmt yuv420p -crf 24 -c:a aac -b:a 128k -ar 44100 -movflags +faststart "${outputPath}" 2>/dev/null`);
+        // 2. Fallback: Stream copy with timestamp normalization
+        execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c copy -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
             return outputPath;
         }

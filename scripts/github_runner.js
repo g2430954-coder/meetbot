@@ -192,8 +192,8 @@ async function sendVideoToTelegram(bot, chatId, videoPath, caption) {
     const meta = getVideoMetadata(videoPath);
     const videoOptions = {
         supports_streaming: true,
-        width: meta.width,
-        height: meta.height,
+        width: meta.width > 0 ? meta.width : 1920,
+        height: meta.height > 0 ? meta.height : 1080,
         caption: caption
     };
     if (meta.duration > 0) videoOptions.duration = meta.duration;
