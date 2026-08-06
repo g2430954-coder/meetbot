@@ -63,7 +63,7 @@ async function isWorkflowRunning() {
 
     if (!PAT_TOKEN) return false;
 
-    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs?status=in_progress`;
+    const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs?per_page=15`;
 
     try {
         const res = await axios.get(url, {
@@ -72,7 +72,12 @@ async function isWorkflowRunning() {
                 'Accept': 'application/vnd.github.v3+json'
             }
         });
-        return res.data.total_count > 0;
+        if (res.data && Array.isArray(res.data.workflow_runs)) {
+            return res.data.workflow_runs.some(run => 
+                run.status === 'in_progress' || run.status === 'queued' || run.status === 'waiting' || run.status === 'requested'
+            );
+        }
+        return false;
     } catch (e) {
         return false;
     }

@@ -494,9 +494,14 @@ function startWorkflowMonitor(ctx, slot = 1) {
     const chatId = ctx.chat.id.toString();
     const session = getSession(chatId, slot);
     if (session.monitorInterval) clearInterval(session.monitorInterval);
+    const monitorStartTime = Date.now();
     session.monitorInterval = setInterval(async () => {
         if (!session.isJoined) {
             clearInterval(session.monitorInterval);
+            return;
+        }
+        // Give 90s grace period for GitHub Actions VM allocation and startup
+        if (Date.now() - monitorStartTime < 90000) {
             return;
         }
         const isRunning = await github.isWorkflowRunning();
@@ -509,7 +514,7 @@ function startWorkflowMonitor(ctx, slot = 1) {
                  clearInterval(session.monitorInterval);
             }
         }
-    }, 30000);
+    }, 15000);
 }
 
 // Inline Actions
