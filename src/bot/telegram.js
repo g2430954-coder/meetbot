@@ -532,8 +532,8 @@ function startWorkflowMonitor(ctx, slot = 1) {
             clearInterval(session.monitorInterval);
             return;
         }
-        // Give 90s grace period for GitHub Actions VM allocation and startup
-        if (Date.now() - monitorStartTime < 90000) {
+        // Give 5 minutes (300000ms) grace period for GitHub Actions VM setup, Chrome, and PyTorch/Whisper install
+        if (Date.now() - monitorStartTime < 300000) {
             return;
         }
         const isRunning = await github.isWorkflowRunning();
