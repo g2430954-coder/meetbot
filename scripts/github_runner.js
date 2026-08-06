@@ -283,7 +283,7 @@ let isDeploymentComplete = false;
 const backgroundTaskInterval = setInterval(async () => {
     if (isFinalized || !isDeploymentComplete) return;
     const now = new Date();
-    const startTime = parseTimeToToday(scheduledStart);
+    const startTime = scheduledStart ? parseTimeToToday(scheduledStart) : (scheduledEnd ? new Date(0) : null);
     const endTime = parseTimeToToday(scheduledEnd);
     if (isRecording) {
         const shouldStop = await checkStopSignal() || (endTime && now >= endTime);
@@ -291,11 +291,11 @@ const backgroundTaskInterval = setInterval(async () => {
         else await processLatestSegments();
     } else {
         if (endTime && now >= endTime) {
-            logger.info("Scheduled time has already passed. Concluding runner session.");
+            logger.info("Scheduled duration/time has passed. Concluding runner session.");
             await finalizeAndUpload(vncUrlGlobal);
             return;
         }
-        const recordSignal = await checkRecordSignal() || (startTime && now >= startTime && (!endTime || now < endTime));
+        const recordSignal = await checkRecordSignal() || (!scheduledStart && scheduledEnd) || (startTime && now >= startTime && (!endTime || now < endTime));
         if (recordSignal) await triggerStartRecording();
     }
 }, 3000); // 3s Smooth Polling

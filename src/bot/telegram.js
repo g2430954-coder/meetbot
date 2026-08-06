@@ -107,8 +107,31 @@ function convertTo24Hour(timeStr) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
 }
 
+function parseDurationMinutes(text) {
+    if (!text) return null;
+    const match = text.match(/\b(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/i);
+    if (!match) return null;
+    const value = parseFloat(match[1]);
+    const unit = match[2].toLowerCase();
+    if (unit.startsWith('h')) {
+        return Math.round(value * 60);
+    } else {
+        return Math.round(value);
+    }
+}
+
+function getFutureTime24H(additionalMinutes) {
+    const now = new Date();
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const istMs = utcMs + (5.5 * 3600000) + (additionalMinutes * 60000);
+    const futureDate = new Date(istMs);
+    const hours = futureDate.getHours().toString().padStart(2, '0');
+    const minutes = futureDate.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
 /**
- * Helper to extract meeting URL, Title, and optionally start/end times
+ * Helper to extract meeting URL, Title, and optionally start/end times or duration
  */
 function parseJoinParams(text) {
     if (!text) return { url: null, title: null, displayName: null, start: null, end: null };
@@ -117,6 +140,14 @@ function parseJoinParams(text) {
     let commandText = text;
     if (text.startsWith('/join')) {
         commandText = text.substring(5).trim();
+    }
+
+    // Check for duration syntax (e.g. 10m, 30m, 1h, 15min)
+    const durationMinutes = parseDurationMinutes(commandText);
+    let calculatedEnd = null;
+    if (durationMinutes) {
+        calculatedEnd = getFutureTime24H(durationMinutes);
+        commandText = commandText.replace(/\b(\d+(?:\.\d+)?)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours)\b/gi, '');
     }
 
     // Advanced regex to catch HH:mm with optional AM/PM
@@ -151,7 +182,7 @@ function parseJoinParams(text) {
         title,
         displayName,
         start: times[0] ? convertTo24Hour(times[0].trim()) : null,
-        end: times[1] ? convertTo24Hour(times[1].trim()) : null
+        end: calculatedEnd || (times[1] ? convertTo24Hour(times[1].trim()) : null)
     };
 }
 
@@ -206,10 +237,11 @@ bot.start(async (ctx) => {
         "Status: ✅ *KERNEL OPERATIONAL*\n\n" +
         "📋 *Primary Command Syntax:*\n" +
         "🔹 `/join <url> <title> [name] [start] [end]`\n\n" +
-        "💡 *Scheduling Examples:*\n" +
-        "• _Manual_: `/join https://meet.com/abc Daily_Sync` \n" +
+        "💡 *Scheduling & Duration Examples:*\n" +
+        "• _Instant + Timer_: `/join https://meet.com/abc Meeting 10m` (Auto-stops in 10 mins)\n" +
+        "• _1 Hour Timer_: `/join https://meet.com/abc Lecture 1h` (Auto-stops in 1 hour)\n" +
         "• _Auto-Pilot_: `/join https://meet.com/abc Sync 2:00 PM 3:30 PM` \n" +
-        "• _24h Format_: `/join https://meet.com/abc Meeting 14:00 15:30` \n\n" +
+        "• _Manual_: `/join https://meet.com/abc Daily_Sync` \n\n" +
         "Use /help for detailed operational manual.";
 
     await ctx.replyWithMarkdown(welcomeUI, Markup.inlineKeyboard([
