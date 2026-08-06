@@ -6,8 +6,8 @@ const logger = require('./logger');
  */
 async function cancelAndDeleteRunningWorkflows(chatId = null, slot = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
 
     if (!PAT_TOKEN) return;
 
@@ -58,8 +58,8 @@ async function cancelAndDeleteRunningWorkflows(chatId = null, slot = null) {
  */
 async function isWorkflowRunning() {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
 
     if (!PAT_TOKEN) return false;
 
@@ -83,8 +83,8 @@ async function isWorkflowRunning() {
  */
 async function setGhostSignal(signalValue) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
     if (!PAT_TOKEN) return;
 
     const url = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/variables/GHOST_SIGNAL`;
@@ -112,8 +112,8 @@ async function setGhostSignal(signalValue) {
  */
 async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = null, scheduledStart = null, scheduledEnd = null, slot = 1, runStartTime = null) {
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
 
     if (!PAT_TOKEN) {
         throw new Error("Missing PAT_TOKEN in Render environment variables. Please add PAT_TOKEN to Render.");
@@ -161,8 +161,8 @@ async function triggerRunner(meetingUrl, playerMessageId, chatId, displayName = 
 async function triggerRecordRunner(chatId, playerMessageId) {
     await setGhostSignal('RECORD');
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
 
     if (!PAT_TOKEN) {
         throw new Error("Missing PAT_TOKEN in Render environment variables.");
@@ -197,8 +197,8 @@ async function triggerRecordRunner(chatId, playerMessageId) {
 async function triggerStopRunner(chatId, playerMessageId) {
     await setGhostSignal('STOP');
     const PAT_TOKEN = process.env.PAT_TOKEN || process.env.GITHUB_PAT;
-    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'JARRY999Iq';
-    const GITHUB_REPO = process.env.GITHUB_REPO || 'GHOST-meet';
+    const GITHUB_OWNER = process.env.GITHUB_OWNER || 'g2430954-coder';
+    const GITHUB_REPO = process.env.GITHUB_REPO || 'meetbot';
 
     if (!PAT_TOKEN) {
         throw new Error("Missing PAT_TOKEN in Render environment variables.");
