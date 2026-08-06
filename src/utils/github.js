@@ -27,20 +27,20 @@ async function cancelAndDeleteRunningWorkflows(chatId = null, slot = null) {
                 const createdAt = new Date(run.created_at).getTime();
                 const isRunning = run.status === 'in_progress' || run.status === 'queued' || run.status === 'waiting';
 
-                // Safety Delay: Don't cancel workflows that started in the last 30 seconds
-                // to avoid race conditions with newly triggered flows.
-                const isOld = (now - createdAt > 30000);
+                // Safety Delay: Don't cancel workflows that started in the last 5 minutes (300,000 ms)
+                // to prevent cancelling newly queued GitHub Actions runners during VM spin-up.
+                const isOld = (now - createdAt > 300000);
 
                 if (isRunning && isOld) {
-                    logger.info(`Cancelling workflow run #${run.id} (${run.name})...`);
+                    logger.info(`Cancelling old workflow run #${run.id} (${run.name})...`);
                     await axios.post(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}/cancel`, {}, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
                     }).catch(() => {});
                     await new Promise(r => setTimeout(r, 500));
                 }
 
-                // Delete logs of non-active runs
-                if ((run.status === 'completed' || run.status === 'cancelled') && isOld) {
+                // Delete logs of completed/cancelled runs older than 10 minutes
+                if ((run.status === 'completed' || run.status === 'cancelled') && (now - createdAt > 600000)) {
                     logger.info(`Cleaning up workflow logs #${run.id}...`);
                     await axios.delete(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/actions/runs/${run.id}`, {
                         headers: { 'Authorization': `token ${PAT_TOKEN}`, 'Accept': 'application/vnd.github.v3+json' }
