@@ -427,7 +427,6 @@ bot.action(/cmd_record_(\d+)/, async (ctx) => {
 async function handleStop(ctx, slot = 1) {
     const chatId = ctx.chat.id.toString();
     const session = getSession(chatId, slot);
-    if (!session.isJoined) return;
 
     session.isRecording = false;
     session.activeSignal = 'STOP';
