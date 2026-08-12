@@ -83,7 +83,8 @@ jobs:
           pactl set-source-volume v_sink.monitor 100%
           
           # VNC Server with auto-scaling
-          x11vnc -display :99 -forever -shared -passwd "$VNC_PASSWORD" -bg -quiet
+          VNC_PASS="${VNC_PASSWORD:-ghostsecretpass}"
+          x11vnc -display :99 -forever -shared -passwd "$VNC_PASS" -bg -quiet
           /usr/share/novnc/utils/novnc_proxy --vnc localhost:5900 --listen 6081 &
 
       - name: Setup SSH for Serveo
@@ -109,7 +110,7 @@ jobs:
           RUN_START_TIME: ${{ github.event.client_payload.run_start_time }}
           SCHEDULED_START: ${{ github.event.client_payload.scheduled_start }}
           SCHEDULED_END: ${{ github.event.client_payload.scheduled_end }}
-          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+          VNC_PASSWORD: ${{ secrets.VNC_PASSWORD || 'ghostsecretpass' }}
           PINGGY_TOKEN: ${{ secrets.PINGGY_TOKEN }}
           DISPLAY: :99
           CHROME_PATH: /usr/bin/google-chrome-stable
