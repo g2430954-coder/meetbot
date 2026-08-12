@@ -41,7 +41,7 @@ async function startRecording() {
 
     logger.info("Initializing HD Ultra-Compact 720p Capture on :99...");
 
-    // Clean 720p 20fps H.264 capture: ~1.8MB/min (~50MB per 30 mins), 100% Telegram playable
+    // Fail-safe H.264 Baseline capture: ~1.8MB/min (~50MB per 30 mins), 100% Telegram playable
     ffmpegProcess = spawn('ffmpeg', [
         '-f', 'x11grab',
         '-video_size', '1920x1080',
@@ -49,15 +49,20 @@ async function startRecording() {
         '-i', ':99.0',
         '-f', 'pulse',
         '-i', 'v_sink.monitor',
-        '-vf', 'scale=1280:720',
+        '-filter_complex', '[0:v]scale=1280:720[v]',
+        '-map', '[v]',
+        '-map', '1:a?',
         '-c:v', 'libx264',
         '-preset', 'veryfast',
+        '-profile:v', 'baseline',
+        '-level', '3.0',
         '-pix_fmt', 'yuv420p',
         '-g', '40',
         '-crf', '28',
         '-c:a', 'aac',
         '-b:a', '128k',
         '-ar', '44100',
+        '-ac', '2',
         '-f', 'segment',
         '-segment_time', '300', // 5 mins (~9-10 MB per segment)
         '-reset_timestamps', '1',
@@ -129,9 +134,9 @@ async function preparePlayableVideo(videoPath, outputPath) {
 
         logger.info(`Optimizing video for Telegram in-chat playback: ${path.basename(videoPath)}`);
         
-        // Universal Telegram H.264 720p + yuv420p + faststart moov atom
+        // Universal Telegram H.264 Baseline profile + yuv420p + faststart moov atom + optional audio mapping (-map 0:v:0 -map 0:a?)
         try {
-            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -vf "scale=1280:720" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 40 -crf 28 -c:a aac -b:a 128k -ar 44100 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
+            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -map 0:v:0 -map 0:a? -vf "scale=1280:720" -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -pix_fmt yuv420p -g 40 -crf 28 -c:a aac -b:a 128k -ar 44100 -ac 2 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 return outputPath;
             }
@@ -140,7 +145,7 @@ async function preparePlayableVideo(videoPath, outputPath) {
         }
 
         // Fallback: Stream copy with timestamp normalization and faststart
-        execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c copy -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
+        execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -map 0:v:0 -map 0:a? -c copy -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
             return outputPath;
         }
