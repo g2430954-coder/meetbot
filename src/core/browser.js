@@ -436,6 +436,11 @@ async function launchMeeting(url, customDisplayName = null) {
         const launchOptions = {
             headless: false,
             executablePath: browserPath,
+            env: {
+                ...process.env,
+                PULSE_SINK: 'v_sink',
+                DISPLAY: ':99'
+            },
             ignoreDefaultArgs: [
                 '--disable-extensions',
                 '--disable-component-update',

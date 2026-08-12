@@ -16,6 +16,11 @@ const STATUS_ICONS = {
     ERROR: '⚠️'
 };
 
+function escapeMarkdown(text) {
+    if (!text) return '';
+    return String(text).replace(/[_*`\[\]]/g, '\\$&');
+}
+
 function generatePlayerUI(params) {
     const {
         status,
@@ -45,7 +50,7 @@ function generatePlayerUI(params) {
     }
 
     if (participantName) {
-        uiText += `👤 IDENTITY: \`${participantName}\`\n`;
+        uiText += `👤 IDENTITY: \`${escapeMarkdown(participantName)}\`\n`;
     }
 
     uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -84,7 +89,7 @@ function generatePlayerUI(params) {
         uiText += `📟 *TERMINAL OUTPUT:*\n`;
         uiText += `\`\`\``;
         logs.slice(-3).forEach(log => {
-            uiText += `\n> ${log}`;
+            uiText += `\n> ${String(log).replace(/```/g, '')}`;
         });
         uiText += `\`\`\`\n`;
     }
@@ -94,7 +99,7 @@ function generatePlayerUI(params) {
         uiText += `━━━━━━━━━━━━━━━━━━━━━━\n`;
         uiText += `📜 *LIVE TRANSCRIPTION DASHBOARD:*\n`;
         uiText += `\`\`\``;
-        uiText += latestTranscript ? `\n"${latestTranscript}"` : `\nWaiting for active speech stream...`;
+        uiText += latestTranscript ? `\n"${String(latestTranscript).replace(/```/g, '')}"` : `\nWaiting for active speech stream...`;
         uiText += `\`\`\`\n`;
     }
 
