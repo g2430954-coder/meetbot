@@ -21,8 +21,9 @@ const meetingUrl = process.env.MEETING_URL;
 const groupId = process.env.ALLOWED_GROUP_ID;
 const slot = process.env.SLOT || 1;
 
-const playerMessageId = process.env.PLAYER_MESSAGE_ID;
-const chatId = process.env.CHAT_ID || groupId;
+const rawChatId = (process.env.CHAT_ID || process.env.ALLOWED_GROUP_ID || '').toString().trim();
+const chatId = (!isNaN(Number(rawChatId)) && rawChatId.length > 0) ? Number(rawChatId) : rawChatId;
+const playerMessageId = (process.env.PLAYER_MESSAGE_ID || '').toString().trim();
 const GHOST_API_KEY = process.env.GHOST_API_KEY || "GHOST_DEFAULT_SECURE_KEY_999";
 
 let isRecording = false;
@@ -127,12 +128,13 @@ const masterUIInterval = setInterval(async () => {
     });
 
     try {
+        if (!chatId || !playerMessageId) return;
         await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, currentUI.text, {
             parse_mode: 'Markdown', ...currentUI.markup
         });
     } catch (e) {
         if (!e.message?.includes('message is not modified')) {
-            logger.warn(`Telegram UI Update Warning: ${e.message}`);
+            logger.warn(`Telegram UI Update Warning (chatId=${chatId}, msgId=${playerMessageId}): ${e.message}`);
         }
     }
 }, 4500);
