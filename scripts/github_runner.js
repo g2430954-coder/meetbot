@@ -177,20 +177,21 @@ function getVideoMetadata(filePath) {
     try {
         const out = spawnSync('ffprobe', [
             '-v', 'error',
-            '-show_entries', 'format=duration:stream=width,height',
+            '-select_streams', 'v:0',
+            '-show_entries', 'stream=width,height,duration:format=duration',
             '-of', 'json',
             filePath
         ]).stdout.toString();
         const data = JSON.parse(out);
-        const duration = parseFloat(data.format?.duration || 0);
-        const stream = (data.streams || []).find(s => s.width && s.height) || {};
+        const stream = data.streams?.[0] || {};
+        const duration = parseFloat(stream.duration || data.format?.duration || 0);
         return {
             duration: Math.round(duration),
-            width: stream.width || 1920,
-            height: stream.height || 1080
+            width: stream.width || 1280,
+            height: stream.height || 720
         };
     } catch (e) {
-        return { duration: 0, width: 1920, height: 1080 };
+        return { duration: 0, width: 1280, height: 720 };
     }
 }
 
@@ -198,13 +199,18 @@ async function sendVideoToTelegram(bot, chatId, videoPath, caption) {
     const meta = getVideoMetadata(videoPath);
     const videoOptions = {
         supports_streaming: true,
-        width: meta.width > 0 ? meta.width : 1920,
-        height: meta.height > 0 ? meta.height : 1080,
         caption: caption
     };
-    if (meta.duration > 0) videoOptions.duration = meta.duration;
+    if (meta.width > 0 && meta.height > 0) {
+        videoOptions.width = meta.width;
+        videoOptions.height = meta.height;
+    }
+    if (meta.duration > 0) {
+        videoOptions.duration = meta.duration;
+    }
 
     try {
+        logger.info(`Sending Telegram video (${path.basename(videoPath)}): ${meta.width}x${meta.height}, ${meta.duration}s`);
         await bot.telegram.sendVideo(chatId, { source: fs.createReadStream(videoPath) }, videoOptions);
     } catch (err) {
         logger.warn(`sendVideo failed (${err.message}), falling back to sendDocument...`);
