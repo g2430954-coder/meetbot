@@ -110,6 +110,7 @@ jobs:
           SCHEDULED_START: ${{ github.event.client_payload.scheduled_start }}
           SCHEDULED_END: ${{ github.event.client_payload.scheduled_end }}
           VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+          PINGGY_TOKEN: ${{ secrets.PINGGY_TOKEN }}
           DISPLAY: :99
           CHROME_PATH: /usr/bin/google-chrome-stable
         run: node scripts/github_runner.js
