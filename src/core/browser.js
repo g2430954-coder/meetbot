@@ -436,7 +436,8 @@ async function launchMeeting(url, customDisplayName = null) {
             if (!tunnelUrl || tunnelUrl.includes('localhost')) {
                 logger.info("Attempting Pinggy Tunnel as fallback...");
                 if (tunnelInstance) tunnelInstance.kill('SIGTERM');
-                tunnelInstance = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-p', '443', '-R', '0:localhost:6080', 'qr@a.pinggy.io'], {
+                const pinggyUser = process.env.PINGGY_TOKEN ? `${process.env.PINGGY_TOKEN}+qr` : 'qr';
+                tunnelInstance = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-p', '443', '-R', '0:localhost:6080', `${pinggyUser}@a.pinggy.io`], {
                     detached: false
                 });
                 tunnelUrl = await new Promise((resolve) => {
