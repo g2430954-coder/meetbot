@@ -228,29 +228,13 @@ async function processLatestSegments() {
             isProcessingSegment = true;
             try {
                 const filePath = path.join(chunksDir, file);
-                const audioPath = path.join(outputDir, `${file}.wav`);
-                await recorder.extractAudio(filePath, audioPath);
-
-                const transcriptPath = await transcriber.transcribe(audioPath);
-                if (transcriptPath && fs.existsSync(transcriptPath)) {
-                    const text = fs.readFileSync(transcriptPath, 'utf8');
-                    const cleanText = text.split('\n').filter(l => l.trim() && !l.includes('━━━━') && !l.includes('SYSTEM:')).join(' ');
-                    if (cleanText) {
-                        latestTranscript = cleanText;
-                        totalWordCount += cleanText.split(/\s+/).length;
-                    }
-                }
-
                 const playablePath = path.join(outputDir, `stream_${file}`);
                 const finalVideoPath = await recorder.preparePlayableVideo(filePath, playablePath);
-                const captionText = latestTranscript ? latestTranscript.substring(0, 500) : "Speech capture active...";
 
-                await sendVideoToTelegram(bot, chatId, finalVideoPath, `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}\n📜 Text: ${captionText}`);
+                await sendVideoToTelegram(bot, chatId, finalVideoPath, `🎥 GHOST meet Recording | Part ${processedSegments.size + 1}`);
 
                 if (fs.existsSync(playablePath)) fs.removeSync(playablePath);
-
                 processedSegments.add(file);
-                if (fs.existsSync(audioPath)) fs.removeSync(audioPath);
             } finally {
                 isProcessingSegment = false;
             }
@@ -343,7 +327,7 @@ async function finalizeAndUpload(vncUrl) {
         const finalPath = await generateMasterTranscript();
         if (finalPath && fs.existsSync(finalPath)) {
             await bot.telegram.sendDocument(chatId, { source: fs.createReadStream(finalPath), filename: 'GHOST_meet_PERFECT_Transcript.txt' }, {
-                caption: "📜 *GHOST meet | 100% PERFECT AI TRANSCRIPT*\n(Zero-Loss DeepScan Complete)", parse_mode: 'Markdown'
+                caption: "📜 *GHOST meet | 100% PERFECT AI TRANSCRIPT (Hindi & English)*\n(Zero-Loss Complete Meeting Speech File)", parse_mode: 'Markdown'
             }).catch(() => {});
         }
         targetProgress = 100;

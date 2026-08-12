@@ -39,33 +39,35 @@ async function startRecording() {
 
     ensureAudioEnvironment();
 
-    logger.info("Initializing HD Real-Time Segmenting Capture on :99...");
+    logger.info("Initializing HD Ultra-Compact 720p Capture on :99...");
 
-    // Telegram-Compatible HD Segmenting: H.264 Main Profile + Forced GOP Keyframes + FastStart for Instant In-Chat Playback
+    // Ultra-Compact 720p 15fps encoding: ~1.4MB/min (~42MB per 30 mins), crystal clear screen text
     ffmpegProcess = spawn('ffmpeg', [
         '-f', 'x11grab',
         '-video_size', '1920x1080',
-        '-framerate', '30',
+        '-framerate', '15',
         '-i', ':99.0',
         '-f', 'pulse',
         '-i', 'v_sink.monitor',
-        '-map', '0:v',
+        '-filter_complex', '[0:v]scale=1280:720:flags=bicubic[v]',
+        '-map', '[v]',
         '-map', '1:a',
         '-c:v', 'libx264',
         '-preset', 'veryfast',
         '-profile:v', 'baseline',
         '-level', '3.0',
         '-pix_fmt', 'yuv420p',
-        '-g', '60', // Keyframe every 2 seconds (30fps * 2s) - CRITICAL for segmenting & streaming
-        '-keyint_min', '30',
-        '-force_key_frames', 'expr:gte(t,n_forced*2)',
-        '-crf', '25',
+        '-g', '30',
+        '-keyint_min', '15',
+        '-crf', '30',
+        '-maxrate', '350k',
+        '-bufsize', '700k',
         '-c:a', 'aac',
-        '-b:a', '128k',
-        '-ar', '44100',
-        '-ac', '2',
+        '-b:a', '64k',
+        '-ar', '32000',
+        '-ac', '1',
         '-f', 'segment',
-        '-segment_time', '180', // 3 mins (guarantees <50MB size for Telegram sendVideo inline playback)
+        '-segment_time', '600', // 10 mins (~14 MB per segment)
         '-reset_timestamps', '1',
         '-segment_format_options', 'movflags=+faststart',
         '-avoid_negative_ts', 'make_zero',
@@ -137,7 +139,7 @@ async function preparePlayableVideo(videoPath, outputPath) {
         
         // 1. Universal Telegram H.264 Baseline profile + yuv420p + faststart moov atom
         try {
-            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -pix_fmt yuv420p -g 60 -crf 23 -c:a aac -b:a 128k -ar 44100 -ac 2 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
+            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -filter_complex "[0:v]scale=1280:720:flags=bicubic[v]" -map "[v]" -map 0:a? -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -pix_fmt yuv420p -g 30 -crf 30 -maxrate 350k -bufsize 700k -c:a aac -b:a 64k -ar 32000 -ac 1 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 return outputPath;
             }
