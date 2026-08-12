@@ -448,7 +448,7 @@ async function launchMeeting(url, customDisplayName = null) {
                     const handlePinggy = (data) => {
                         const msg = data.toString();
                         logger.info(`[PINGGY DEBUG] ${msg}`);
-                        const match = msg.match(/https:\/\/[a-z0-9.-]+\.a\.free\.pinggy\.link/i) || msg.match(/https:\/\/[a-z0-9.-]+\.pinggy\.link/i);
+                        const match = msg.match(/https:\/\/[a-z0-9.-]+\.pinggy\.(link|net)/i);
                         if (match) {
                             found = true;
                             clearTimeout(pinggyTimeout);

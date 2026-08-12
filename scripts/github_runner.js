@@ -130,7 +130,11 @@ const masterUIInterval = setInterval(async () => {
         await bot.telegram.editMessageText(chatId, Number(playerMessageId), undefined, currentUI.text, {
             parse_mode: 'Markdown', ...currentUI.markup
         });
-    } catch (e) {}
+    } catch (e) {
+        if (!e.message?.includes('message is not modified')) {
+            logger.warn(`Telegram UI Update Warning: ${e.message}`);
+        }
+    }
 }, 4500);
 
 async function getGhostSignal() {
