@@ -41,33 +41,25 @@ async function startRecording() {
 
     logger.info("Initializing HD Ultra-Compact 720p Capture on :99...");
 
-    // Ultra-Compact 720p 15fps encoding: ~1.4MB/min (~42MB per 30 mins), crystal clear screen text
+    // Clean 720p 20fps H.264 capture: ~1.8MB/min (~50MB per 30 mins), 100% Telegram playable
     ffmpegProcess = spawn('ffmpeg', [
         '-f', 'x11grab',
         '-video_size', '1920x1080',
-        '-framerate', '15',
+        '-framerate', '20',
         '-i', ':99.0',
         '-f', 'pulse',
         '-i', 'v_sink.monitor',
-        '-filter_complex', '[0:v]scale=1280:720:flags=bicubic[v]',
-        '-map', '[v]',
-        '-map', '1:a',
+        '-vf', 'scale=1280:720',
         '-c:v', 'libx264',
         '-preset', 'veryfast',
-        '-profile:v', 'baseline',
-        '-level', '3.0',
         '-pix_fmt', 'yuv420p',
-        '-g', '30',
-        '-keyint_min', '15',
-        '-crf', '30',
-        '-maxrate', '350k',
-        '-bufsize', '700k',
+        '-g', '40',
+        '-crf', '28',
         '-c:a', 'aac',
-        '-b:a', '64k',
-        '-ar', '32000',
-        '-ac', '1',
+        '-b:a', '128k',
+        '-ar', '44100',
         '-f', 'segment',
-        '-segment_time', '600', // 10 mins (~14 MB per segment)
+        '-segment_time', '300', // 5 mins (~9-10 MB per segment)
         '-reset_timestamps', '1',
         '-segment_format_options', 'movflags=+faststart',
         '-avoid_negative_ts', 'make_zero',
@@ -137,9 +129,9 @@ async function preparePlayableVideo(videoPath, outputPath) {
 
         logger.info(`Optimizing video for Telegram in-chat playback: ${path.basename(videoPath)}`);
         
-        // 1. Universal Telegram H.264 Baseline profile + yuv420p + faststart moov atom
+        // Universal Telegram H.264 720p + yuv420p + faststart moov atom
         try {
-            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -filter_complex "[0:v]scale=1280:720:flags=bicubic[v]" -map "[v]" -map 0:a? -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -pix_fmt yuv420p -g 30 -crf 30 -maxrate 350k -bufsize 700k -c:a aac -b:a 64k -ar 32000 -ac 1 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
+            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -vf "scale=1280:720" -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 40 -crf 28 -c:a aac -b:a 128k -ar 44100 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 return outputPath;
             }
@@ -147,7 +139,7 @@ async function preparePlayableVideo(videoPath, outputPath) {
             logger.warn(`Re-encode repair warning for ${path.basename(videoPath)}: ${reencodeErr.message}`);
         }
 
-        // 2. Fallback: Stream copy with timestamp normalization and faststart
+        // Fallback: Stream copy with timestamp normalization and faststart
         execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c copy -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
             return outputPath;
