@@ -55,7 +55,7 @@ const TZ_OFFSET_HOURS = 5;
 const TZ_OFFSET_MINS = 30; // IST
 
 let lastUIUpdate = 0;
-const UI_UPDATE_INTERVAL = 3000; // Rate limit friendly updates (3s)
+const UI_UPDATE_INTERVAL = 4500; // Rate limit friendly updates (4.5s)
 
 process.env.CHROME_PATH = '/usr/bin/google-chrome-stable';
 
@@ -131,7 +131,7 @@ const masterUIInterval = setInterval(async () => {
             parse_mode: 'Markdown', ...currentUI.markup
         });
     } catch (e) {}
-}, 2000);
+}, 4500);
 
 async function getGhostSignal() {
     try {
@@ -360,9 +360,35 @@ async function run() {
     try {
         progressStatus = 'DEPLOYING';
         targetProgress = 20;
+
+        // 1. Start Express Proxy Bridge on Port 6080 BEFORE launching browser/tunnel
+        const expressApp = express();
+        const proxy = httpProxy.createProxyServer({
+            target: 'http://localhost:6081',
+            ws: true
+        });
+
+        expressApp.get('/bridge_health', (req, res) => res.json({ status: 'active' }));
+        expressApp.get('/record', async (req, res) => { await triggerStartRecording(); res.json({ success: true }); });
+        expressApp.get('/stop', async (req, res) => { res.json({ success: true }); await finalizeAndUpload(vncUrlGlobal); });
+
+        expressApp.all('*', (req, res) => {
+            proxy.web(req, res, (err) => {
+                logger.error("VNC Proxy Error:", err.message);
+                res.status(502).send("VNC Bridge Offline");
+            });
+        });
+
+        const server = expressApp.listen(6080);
+        server.on('upgrade', (req, socket, head) => {
+            proxy.ws(req, socket, head);
+        });
+        logger.info("VNC & Signal Bridge operational on port 6080.");
+
         const now = new Date();
         const schedTime = parseTimeToToday(scheduledStart);
         if (schedTime) systemLogs.push(`T-Minus: ${Math.floor((schedTime - now) / 60000)}m to Auto-Start.`);
+        
         const tunnel = await browserManager.launchMeeting(meetingUrl, process.env.DISPLAY_NAME);
         vncUrlGlobal = tunnel.url;
         activeParticipantName = tunnel.participantName;
@@ -384,34 +410,6 @@ async function run() {
         isDeploymentComplete = true;
         progressStatus = scheduledStart ? 'SCHEDULED' : 'READY';
         systemLogs.push(`Identity: ${activeParticipantName}`);
-
-        const expressApp = express();
-        const proxy = httpProxy.createProxyServer({
-            target: 'http://localhost:6081',
-            ws: true
-        });
-
-        // 1. Health Check & Bot Signals (Handled by Express)
-        expressApp.get('/bridge_health', (req, res) => res.json({ status: 'active' }));
-        expressApp.get('/record', async (req, res) => { await triggerStartRecording(); res.json({ success: true }); });
-        expressApp.get('/stop', async (req, res) => { res.json({ success: true }); await finalizeAndUpload(vncUrlGlobal); });
-
-        // 2. Everything else (Forward to noVNC on 6081)
-        expressApp.all('*', (req, res) => {
-            proxy.web(req, res, (err) => {
-                logger.error("VNC Proxy Error:", err.message);
-                res.status(502).send("VNC Bridge Offline");
-            });
-        });
-
-        const server = expressApp.listen(6080);
-
-        // 3. Critical: Handle Websocket Proxying for VNC Stream
-        server.on('upgrade', (req, socket, head) => {
-            proxy.ws(req, socket, head);
-        });
-
-        logger.info("VNC & Signal Bridge operational on port 6080.");
     } catch (error) {
         logger.error("Runner Launch Error:", error);
         process.exit(1);

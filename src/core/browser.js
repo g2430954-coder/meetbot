@@ -270,6 +270,70 @@ async function joinGoogleMeet(page, customDisplayName) {
     return participantName;
 }
 
+/**
+ * Automates entering Zoom Web Client pre-join screen and entering meeting
+ */
+async function joinZoomMeeting(page, customDisplayName) {
+    const participantName = customDisplayName || process.env.BOT_DISPLAY_NAME || getRandomHumanName();
+    activeParticipantName = participantName;
+    logger.info(`Zoom Stealth Human Joiner active. Using participant identity: "${participantName}"`);
+
+    await new Promise(r => setTimeout(r, 4000));
+
+    try {
+        const buttons = await page.$$('button');
+        for (const btn of buttons) {
+            const text = await page.evaluate(el => el.textContent || '', btn);
+            if (text.match(/accept|agree|dismiss|got it/i)) {
+                await btn.click().catch(() => {});
+            }
+        }
+    } catch (e) {}
+
+    try {
+        const nameSelector = 'input#inputname, input[name="inputname"], input[placeholder*="name" i], input[type="text"]';
+        await page.waitForSelector(nameSelector, { visible: true, timeout: 8000 });
+        const nameInput = await page.$(nameSelector);
+        if (nameInput) {
+            await nameInput.click({ clickCount: 3 });
+            await page.keyboard.press('Backspace');
+            for (const char of participantName) {
+                await page.keyboard.type(char, { delay: Math.floor(Math.random() * 80) + 50 });
+            }
+            logger.info(`Entered Zoom participant name: "${participantName}"`);
+        }
+    } catch (e) {
+        logger.warn(`Zoom name input notice: ${e.message}`);
+    }
+
+    try {
+        await new Promise(r => setTimeout(r, 1000));
+        const joinBtnSelector = '#joinBtn, button.preview-join-button, button[type="submit"]';
+        const joinBtn = await page.$(joinBtnSelector);
+        if (joinBtn) {
+            await joinBtn.click().catch(() => page.evaluate(el => el.click(), joinBtn));
+            logger.info("Clicked Zoom Web Client Join button.");
+        } else {
+            const btnHandles = await page.$x('//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "join")]');
+            if (btnHandles.length > 0) {
+                await btnHandles[0].click().catch(() => page.evaluate(el => el.click(), btnHandles[0]));
+            }
+        }
+    } catch (e) {}
+
+    setTimeout(async () => {
+        try {
+            const audioBtn = await page.$('#join-audio-by-voip, button.join-audio-by-voip');
+            if (audioBtn) {
+                await audioBtn.click().catch(() => page.evaluate(el => el.click(), audioBtn));
+                logger.info("Clicked Zoom 'Join Audio by Computer'");
+            }
+        } catch (e) {}
+    }, 5000);
+
+    return participantName;
+}
+
 function startAntiKickWatcher(page) {
     if (antiKickInterval) clearInterval(antiKickInterval);
     antiKickInterval = setInterval(async () => {
@@ -333,7 +397,8 @@ async function launchMeeting(url, customDisplayName = null) {
                 if (!bridgeReady) logger.warn("Express Control Bridge did not respond. Tunneling may fail with 502.");
             }
 
-            tunnelInstance = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-R', '80:localhost:6080', 'serveo.net'], {
+            // 1. Setup Tunnel (Serveo -> Pinggy -> LocalTunnel)
+            tunnelInstance = spawn('ssh', ['-o', 'ServerAliveInterval=30', '-o', 'StrictHostKeyChecking=no', '-R', '80:localhost:6080', 'serveo.net'], {
                 detached: false
             });
 
@@ -341,10 +406,10 @@ async function launchMeeting(url, customDisplayName = null) {
                 let found = false;
                 const timeout = setTimeout(() => {
                     if (!found) {
-                        logger.warn("Serveo URL extraction timed out. Using fallback.");
-                        resolve("http://localhost:6080");
+                        logger.warn("Serveo URL extraction timed out. Trying fallback tunnel...");
+                        resolve(null);
                     }
-                }, 25000);
+                }, 15000);
 
                 const handleOutput = (data) => {
                     const msg = data.toString();
@@ -363,13 +428,46 @@ async function launchMeeting(url, customDisplayName = null) {
 
                 tunnelInstance.on('error', (err) => {
                     logger.error(`Serveo Process Error: ${err.message}`);
-                    resolve("http://localhost:6080");
+                    resolve(null);
                 });
             });
 
-            logger.info(`SUCCESS: Serveo tunnel established: ${tunnelUrl}`);
+            // If Serveo failed or timed out, try Pinggy SSH tunnel
+            if (!tunnelUrl || tunnelUrl.includes('localhost')) {
+                logger.info("Attempting Pinggy Tunnel as fallback...");
+                if (tunnelInstance) tunnelInstance.kill('SIGTERM');
+                tunnelInstance = spawn('ssh', ['-o', 'StrictHostKeyChecking=no', '-p', '443', '-R', '0:localhost:6080', 'qr@a.pinggy.io'], {
+                    detached: false
+                });
+                tunnelUrl = await new Promise((resolve) => {
+                    let found = false;
+                    const pinggyTimeout = setTimeout(() => {
+                        if (!found) resolve(null);
+                    }, 12000);
+                    const handlePinggy = (data) => {
+                        const msg = data.toString();
+                        logger.info(`[PINGGY DEBUG] ${msg}`);
+                        const match = msg.match(/https:\/\/[a-z0-9.-]+\.a\.free\.pinggy\.link/i) || msg.match(/https:\/\/[a-z0-9.-]+\.pinggy\.link/i);
+                        if (match) {
+                            found = true;
+                            clearTimeout(pinggyTimeout);
+                            resolve(match[0]);
+                        }
+                    };
+                    tunnelInstance.stdout.on('data', handlePinggy);
+                    tunnelInstance.stderr.on('data', handlePinggy);
+                    tunnelInstance.on('error', () => resolve(null));
+                });
+            }
+
+            if (!tunnelUrl) {
+                logger.warn("Public tunnel failed. Falling back to http://localhost:6080");
+                tunnelUrl = "http://localhost:6080";
+            } else {
+                logger.info(`SUCCESS: Public VNC Tunnel established: ${tunnelUrl}`);
+            }
         } catch (err) {
-            logger.error(`Serveo failed: ${err.message}`);
+            logger.error(`Tunnel setup error: ${err.message}`);
             tunnelUrl = "http://localhost:6080";
         }
 
@@ -538,11 +636,28 @@ async function launchMeeting(url, customDisplayName = null) {
             }
         });
 
-        logger.info(`Navigating to Google Meet URL: ${url}`);
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 90000 });
+        let targetUrl = url;
+        const isZoom = targetUrl.includes('zoom.us');
+        if (isZoom) {
+            if (targetUrl.includes('zoom.us/j/')) {
+                targetUrl = targetUrl.replace(/\/j\/([0-9]+)/, '/wc/join/$1');
+            } else if (targetUrl.includes('zoom.us/s/')) {
+                targetUrl = targetUrl.replace(/\/s\/([0-9]+)/, '/wc/join/$1');
+            }
+            logger.info(`Navigating to Zoom Web Client URL: ${targetUrl}`);
+        } else {
+            logger.info(`Navigating to Meeting URL: ${targetUrl}`);
+        }
 
-        logger.info("Browser session initialized. Triggering Google Meet Human Joiner...");
-        const participantName = await joinGoogleMeet(page, customDisplayName);
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 90000 });
+
+        logger.info("Browser session initialized. Triggering Stealth Human Joiner...");
+        let participantName;
+        if (isZoom) {
+            participantName = await joinZoomMeeting(page, customDisplayName);
+        } else {
+            participantName = await joinGoogleMeet(page, customDisplayName);
+        }
 
         const vncPass = process.env.VNC_PASSWORD || "";
         // REMOVED fixed scale=0.8, using 'resize=scale' to let NoVNC auto-fit to any screen size (Phone/PC)
