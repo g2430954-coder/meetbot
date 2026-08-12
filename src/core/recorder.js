@@ -53,8 +53,8 @@ async function startRecording() {
         '-map', '1:a',
         '-c:v', 'libx264',
         '-preset', 'veryfast',
-        '-profile:v', 'main',
-        '-level', '4.0',
+        '-profile:v', 'baseline',
+        '-level', '3.0',
         '-pix_fmt', 'yuv420p',
         '-g', '60', // Keyframe every 2 seconds (30fps * 2s) - CRITICAL for segmenting & streaming
         '-keyint_min', '30',
@@ -65,7 +65,7 @@ async function startRecording() {
         '-ar', '44100',
         '-ac', '2',
         '-f', 'segment',
-        '-segment_time', '900', // 15 mins
+        '-segment_time', '180', // 3 mins (guarantees <50MB size for Telegram sendVideo inline playback)
         '-reset_timestamps', '1',
         '-segment_format_options', 'movflags=+faststart',
         '-avoid_negative_ts', 'make_zero',
@@ -133,17 +133,19 @@ async function preparePlayableVideo(videoPath, outputPath) {
     try {
         if (!fs.existsSync(videoPath)) return videoPath;
 
-        // 1. Re-encode repair: Guarantees clean keyframes, valid PTS/DTS timestamps, and faststart moov atom
+        logger.info(`Optimizing video for Telegram in-chat playback: ${path.basename(videoPath)}`);
+        
+        // 1. Universal Telegram H.264 Baseline profile + yuv420p + faststart moov atom
         try {
-            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v main -level 4.0 -pix_fmt yuv420p -g 60 -crf 24 -c:a aac -b:a 128k -ar 44100 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
+            execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c:v libx264 -preset ultrafast -profile:v baseline -level 3.0 -pix_fmt yuv420p -g 60 -crf 23 -c:a aac -b:a 128k -ar 44100 -ac 2 -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
             if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
                 return outputPath;
             }
         } catch (reencodeErr) {
-            logger.warn(`Re-encode repair failed for ${path.basename(videoPath)}, trying stream copy fallback...`);
+            logger.warn(`Re-encode repair warning for ${path.basename(videoPath)}: ${reencodeErr.message}`);
         }
 
-        // 2. Fallback: Stream copy with timestamp normalization
+        // 2. Fallback: Stream copy with timestamp normalization and faststart
         execSync(`ffmpeg -y -err_detect ignore_err -fflags +genpts -i "${videoPath}" -c copy -avoid_negative_ts make_zero -movflags +faststart "${outputPath}" 2>/dev/null`);
         if (fs.existsSync(outputPath) && fs.statSync(outputPath).size > 1000) {
             return outputPath;
